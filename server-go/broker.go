@@ -43,6 +43,7 @@ type DeviceState struct {
 type TaskRecord struct {
 	TaskID     string `json:"taskId"`
 	IMEI       string `json:"imei"`
+	DeviceName string `json:"deviceName,omitempty"` // 关联的设备备注名（可为空）
 	Task       string `json:"task"`
 	Params     string `json:"params"`
 	Result     string `json:"result"`
@@ -235,6 +236,11 @@ func (a *App) deviceList() ([]Device, error) {
 	}
 	a.mu.RUnlock()
 	return devs, nil
+}
+
+// updateDeviceName 设置设备备注（空串表示清除）
+func (a *App) updateDeviceName(imei, name string) error {
+	return a.db.updateDeviceName(imei, name)
 }
 
 // ExecuteTask 下发任务给设备并等待结果（30 秒超时）

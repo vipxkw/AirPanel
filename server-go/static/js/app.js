@@ -122,19 +122,27 @@
       renderDevices();
       renderDeviceSelect();
     } catch (err) {
-      $('#devices-tbody').innerHTML = `<tr><td colspan="6" class="px-4 py-10 text-center text-red-500">${esc(err.message)}</td></tr>`;
+      $('#devices-tbody').innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center text-red-500">${esc(err.message)}</td></tr>`;
     }
   }
 
   function renderDevices() {
     const tbody = $('#devices-tbody');
     if (!devices.length) {
-      tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-10 text-center text-slate-400">暂无设备接入</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-10 text-center text-slate-400">暂无设备接入</td></tr>';
       return;
     }
     tbody.innerHTML = devices.map((d) => `
       <tr class="hover:bg-slate-50">
         <td class="px-4 py-3 font-mono text-slate-700">${esc(d.imei)}</td>
+        <td class="px-4 py-3 text-slate-600">
+          <div class="flex items-center gap-1.5 min-w-32">
+            <span class="remark-name truncate max-w-28">${esc(d.name || '—')}</span>
+            <button class="shrink-0 text-slate-400 hover:text-blue-600 transition-colors" data-remark="${esc(d.imei)}" title="设置备注">
+              <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+            </button>
+          </div>
+        </td>
         <td class="px-4 py-3 text-slate-600">${esc(d.phone || '—')}</td>
         <td class="px-4 py-3">${d.connected ? '<span class="badge-online">● 在线</span>' : '<span class="badge-offline">○ 离线</span>'}</td>
         <td class="px-4 py-3 text-slate-500">${fmtTime(d.firstSeen)}</td>
@@ -143,6 +151,45 @@
           <button class="btn btn-ghost !px-3 !py-1.5 text-xs" data-run="${esc(d.imei)}">执行任务</button>
         </td>
       </tr>`).join('');
+  }
+
+  // 内联编辑设备备注
+  function startEditRemark(imei) {
+    const dev = devices.find((d) => d.imei === imei);
+    const td = document.querySelector(`[data-remark="${CSS.escape(imei)}"]`)?.closest('td');
+    if (!td) return;
+    td.innerHTML = `
+      <div class="flex items-center gap-1">
+        <input type="text" class="input !py-1 !px-2 text-xs min-w-32" maxlength="30" value="${esc(dev ? dev.name : '')}" placeholder="备注">
+        <button class="shrink-0 text-emerald-600 hover:scale-110 transition" title="保存" data-remark-save="1">✓</button>
+        <button class="shrink-0 text-slate-400 hover:text-red-500 transition" title="取消" data-remark-cancel="1">✕</button>
+      </div>`;
+    const input = td.querySelector('input');
+    input.focus();
+    input.select();
+
+    const finish = async (save) => {
+      if (save) {
+        const name = input.value.trim();
+        try {
+          await API.updateDeviceRemark({ imei, name });
+          if (dev) dev.name = name;
+          renderDevices();
+          toast(name ? '备注已保存' : '备注已清除');
+        } catch (err) {
+          renderDevices();
+          toast(err.message, false);
+        }
+      } else {
+        renderDevices();
+      }
+    };
+    td.querySelector('[data-remark-save]').addEventListener('click', () => finish(true));
+    td.querySelector('[data-remark-cancel]').addEventListener('click', () => finish(false));
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') finish(true);
+      if (ev.key === 'Escape') finish(false);
+    });
   }
 
   // ---------------- 任务执行 ----------------
@@ -158,7 +205,7 @@
     }
     const online = devices.filter((d) => d.connected).length;
     sel.innerHTML = '<option value="">请选择设备</option>' + devices.map((d) =>
-      `<option value="${esc(d.imei)}" ${d.imei === selected ? 'selected' : ''}>${esc(d.imei)}（${esc(d.phone || '未知号码')}）${d.connected ? '' : ' [离线]'}</option>`).join('');
+      `<option value="${esc(d.imei)}" ${d.imei === selected ? 'selected' : ''}>${d.name ? esc(d.name) + ' · ' : ''}${esc(d.imei)}（${esc(d.phone || '未知号码')}）${d.connected ? '' : ' [离线]'}</option>`).join('');
     if (selected) sel.value = selected;
     if (count) count.textContent = `${devices.length} 台设备 · ${online} 台在线`;
   }
@@ -259,10 +306,12 @@
         let result = t.result || t.error || '';
         if (result.length > 120) result = result.slice(0, 120) + '…';
         const ok = t.status === 'done' && !t.error;
+        const deviceLabel = t.deviceName || t.imei;
+        const isName = !!t.deviceName;
         return `
         <tr class="hover:bg-slate-50 align-top">
           <td class="px-4 py-3 text-slate-500 whitespace-nowrap">${fmtTime(t.createdAt)}</td>
-          <td class="px-4 py-3 font-mono text-slate-700">${esc(t.imei)}</td>
+          <td class="px-4 py-3 text-slate-700">${esc(deviceLabel)}${isName ? `<span class="block text-xs font-mono text-slate-400 mt-0.5">${esc(t.imei)}</span>` : ''}</td>
           <td class="px-4 py-3 text-slate-600">${esc(t.task)}</td>
           <td class="px-4 py-3">${ok ? '<span class="badge-online">成功</span>' : '<span class="badge-offline">失败</span>'}</td>
           <td class="px-4 py-3 text-slate-500 max-w-xs"><pre class="text-xs font-mono whitespace-pre-wrap break-all">${esc(result)}</pre></td>
@@ -318,12 +367,16 @@
     $$('.nav-item').forEach((a) =>
       a.addEventListener('click', (e) => { e.preventDefault(); switchPage(a.dataset.nav); toggleSidebar(false); }));
 
-    // 设备表格里"执行任务"按钮
+    // 设备表格里"执行任务"按钮 / 备注编辑
     $('#devices-tbody').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-run]');
-      if (!btn) return;
-      renderDeviceSelect(btn.dataset.run);
-      switchPage('tasks');
+      const runBtn = e.target.closest('[data-run]');
+      if (runBtn) {
+        renderDeviceSelect(runBtn.dataset.run);
+        switchPage('tasks');
+        return;
+      }
+      const remarkBtn = e.target.closest('[data-remark]');
+      if (remarkBtn) startEditRemark(remarkBtn.dataset.remark);
     });
   }
 

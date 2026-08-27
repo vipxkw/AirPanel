@@ -140,7 +140,7 @@ MQTT_KEEPALIVE = 300   -- 心跳间隔，可降低流量
 
 ## Web 面板功能
 
-- **设备列表**：IMEI / 手机号 / 在线状态 / 接入时间，支持一键跳转执行任务
+- **设备列表**：IMEI / 备注 / 手机号 / 在线状态 / 接入时间，支持在线编辑设备备注、一键跳转执行任务
 - **任务执行**：三步向导式指挥台（选择设备 → 选择任务类型 → 下发执行），内置终端风格实时控制台展示执行过程
 - **任务类型**：查询温度、发送短信、读取配置（返回 `nvm_para.lua` 内容）、写入配置（覆盖 `nvm_para.lua`）
 - **任务记录**：最近 50 条执行记录（成功/失败 + 结果详情）
@@ -154,6 +154,7 @@ MQTT_KEEPALIVE = 300   -- 心跳间隔，可降低流量
 | POST | `/api/logout` | 退出登录 | 是 |
 | POST | `/api/change-user-info` | 修改用户名/密码 | 是 |
 | GET | `/api/userPool` | 设备列表 | 是 |
+| POST | `/api/device/remark` | 设置设备备注（`{imei, name}`，name 为空表示清除） | 是 |
 | POST | `/api/executeTask` | 下发任务（`{imei, task, ...}`） | 是 |
 | GET | `/api/tasks` | 任务记录（最近 50 条） | 是 |
 | GET | `/api/health` | 健康检查 | 否 |

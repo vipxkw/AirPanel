@@ -37,6 +37,9 @@ const API = {
   userPool() {
     return this.request('GET', '/userPool');
   },
+  updateDeviceRemark(payload) {
+    return this.request('POST', '/device/remark', payload);
+  },
   executeTask(payload) {
     return this.request('POST', '/executeTask', payload);
   },

@@ -95,6 +95,12 @@ func (d *DB) listDevices() ([]Device, error) {
 	return out, rows.Err()
 }
 
+// updateDeviceName 设置设备备注（name，空串表示清除）
+func (d *DB) updateDeviceName(imei, name string) error {
+	_, err := d.sql.Exec(`UPDATE devices SET name = ? WHERE imei = ?`, name, imei)
+	return err
+}
+
 // recordTask 记录任务执行记录
 func (d *DB) recordTask(rec TaskRecord) error {
 	_, err := d.sql.Exec(
@@ -106,11 +112,12 @@ func (d *DB) recordTask(rec TaskRecord) error {
 	return err
 }
 
-// recentTasks 返回最近任务记录
+// recentTasks 返回最近任务记录（关联设备备注名，用于展示）
 func (d *DB) recentTasks(limit int) ([]TaskRecord, error) {
 	rows, err := d.sql.Query(
-		`SELECT task_id, imei, task, params, result, error, status, created_at, finished_at
-		 FROM tasks ORDER BY id DESC LIMIT ?`, limit)
+		`SELECT t.task_id, t.imei, t.task, t.params, t.result, t.error, t.status, t.created_at, t.finished_at, d.name
+		 FROM tasks t LEFT JOIN devices d ON d.imei = t.imei
+		 ORDER BY t.id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +127,7 @@ func (d *DB) recentTasks(limit int) ([]TaskRecord, error) {
 	for rows.Next() {
 		var rec TaskRecord
 		if err := rows.Scan(&rec.TaskID, &rec.IMEI, &rec.Task, &rec.Params, &rec.Result,
-			&rec.Error, &rec.Status, &rec.CreatedAt, &rec.FinishedAt); err != nil {
+			&rec.Error, &rec.Status, &rec.CreatedAt, &rec.FinishedAt, &rec.DeviceName); err != nil {
 			return nil, err
 		}
 		out = append(out, rec)

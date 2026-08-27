@@ -39,6 +39,7 @@ func (api *API) routes() http.Handler {
 	mux.HandleFunc("/api/logout", api.authenticate(api.handleLogout))
 	mux.HandleFunc("/api/change-user-info", api.authenticate(api.handleChangeUserInfo))
 	mux.HandleFunc("/api/userPool", api.authenticate(api.handleUserPool))
+	mux.HandleFunc("/api/device/remark", api.authenticate(api.handleUpdateDeviceRemark))
 	mux.HandleFunc("/api/executeTask", api.authenticate(api.handleExecuteTask))
 	mux.HandleFunc("/api/tasks", api.authenticate(api.handleTasks))
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
@@ -186,6 +187,28 @@ func (api *API) handleUserPool(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, devices)
+}
+
+func (api *API) handleUpdateDeviceRemark(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IMEI string `json:"imei"`
+		Name string `json:"name"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	body.Name = strings.TrimSpace(body.Name)
+	if body.IMEI == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "缺少设备 IMEI"})
+		return
+	}
+	if err := api.app.updateDeviceName(body.IMEI, body.Name); err != nil {
+		log.Printf("保存设备备注失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "保存备注失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "备注已保存"})
 }
 
 func (api *API) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
