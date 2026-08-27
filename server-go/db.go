@@ -1,0 +1,142 @@
+package main
+
+import (
+	"database/sql"
+	"encoding/json"
+
+	_ "modernc.org/sqlite"
+)
+
+// DB 封装 SQLite 数据访问（设备、任务记录）
+type DB struct {
+	sql *sql.DB
+}
+
+func openDB(path string) (*DB, error) {
+	sqlDB, err := sql.Open("sqlite", path)
+	if err != nil {
+		return nil, err
+	}
+	sqlDB.SetMaxOpenConns(1) // SQLite 单写者
+	if err := sqlDB.Ping(); err != nil {
+		return nil, err
+	}
+	db := &DB{sql: sqlDB}
+	if err := db.init(); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+func (d *DB) init() error {
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS devices (
+			imei       TEXT PRIMARY KEY,
+			phone      TEXT DEFAULT '',
+			name       TEXT DEFAULT '',
+			connected  INTEGER DEFAULT 0,
+			last_seen  INTEGER DEFAULT 0,
+			first_seen INTEGER DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS tasks (
+			id          INTEGER PRIMARY KEY AUTOINCREMENT,
+			task_id     TEXT DEFAULT '',
+			imei        TEXT DEFAULT '',
+			task        TEXT DEFAULT '',
+			params      TEXT DEFAULT '',
+			result      TEXT DEFAULT '',
+			error       TEXT DEFAULT '',
+			status      TEXT DEFAULT 'pending',
+			created_at  INTEGER DEFAULT 0,
+			finished_at INTEGER DEFAULT 0
+		)`,
+	}
+	for _, s := range stmts {
+		if _, err := d.sql.Exec(s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// upsertDevice 写入或更新设备记录（在线状态 + 最近活跃时间）
+func (d *DB) upsertDevice(imei, phone string, connected bool, lastSeen int64) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO devices (imei, phone, connected, last_seen, first_seen)
+		 VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(imei) DO UPDATE SET
+		   phone = CASE WHEN ? <> '' THEN ? ELSE phone END,
+		   connected = ?,
+		   last_seen = ?`,
+		imei, phone, b2i(connected), lastSeen, lastSeen,
+		phone, phone, b2i(connected), lastSeen,
+	)
+	return err
+}
+
+// listDevices 返回设备列表
+func (d *DB) listDevices() ([]Device, error) {
+	rows, err := d.sql.Query(`SELECT imei, phone, name, connected, last_seen, first_seen FROM devices`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out = make([]Device, 0)
+	for rows.Next() {
+		var dev Device
+		var connected int
+		if err := rows.Scan(&dev.IMEI, &dev.Phone, &dev.Name, &connected, &dev.LastSeen, &dev.FirstSeen); err != nil {
+			return nil, err
+		}
+		dev.Connected = connected != 0
+		out = append(out, dev)
+	}
+	return out, rows.Err()
+}
+
+// recordTask 记录任务执行记录
+func (d *DB) recordTask(rec TaskRecord) error {
+	_, err := d.sql.Exec(
+		`INSERT INTO tasks (task_id, imei, task, params, result, error, status, created_at, finished_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		rec.TaskID, rec.IMEI, rec.Task, rec.Params, rec.Result, rec.Error, rec.Status,
+		rec.CreatedAt, rec.FinishedAt,
+	)
+	return err
+}
+
+// recentTasks 返回最近任务记录
+func (d *DB) recentTasks(limit int) ([]TaskRecord, error) {
+	rows, err := d.sql.Query(
+		`SELECT task_id, imei, task, params, result, error, status, created_at, finished_at
+		 FROM tasks ORDER BY id DESC LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out = make([]TaskRecord, 0)
+	for rows.Next() {
+		var rec TaskRecord
+		if err := rows.Scan(&rec.TaskID, &rec.IMEI, &rec.Task, &rec.Params, &rec.Result,
+			&rec.Error, &rec.Status, &rec.CreatedAt, &rec.FinishedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
+}
+
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+// jsonBytes 用于日志/持久化的辅助
+func jsonBytes(v any) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}

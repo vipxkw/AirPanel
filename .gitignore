@@ -1,1 +1,12 @@
 node_modules
+
+# Go 服务端运行产物与本地状态（不入库）
+server-go/panel-server.exe
+server-go/panel.db
+server-go/login.json
+server-go/task.json
+server-go/config.json
+server-go/tools/
+
+# 本地测试残留
+script/lib/out.json

@@ -1,0 +1,36 @@
+# ---------- 构建阶段 ----------
+# 使用 golang 官方镜像编译 Go 服务端
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /build
+
+# 先拷贝依赖清单，利用 Docker 层缓存，避免每次重复下载依赖
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 拷贝源码及前端产物（web/ 源 + static/ 已编译的静态文件）
+# 前端静态文件由 go:embed 内嵌进二进制，容器内无需再编译 Tailwind
+COPY . .
+
+# 项目使用纯 Go 实现（modernc.org/sqlite 不依赖 CGO），可静态编译
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o panel-server .
+
+# ---------- 运行阶段 ----------
+FROM alpine:3.20
+
+WORKDIR /app
+
+# 安装 CA 证书（设备端 HTTPS 通知等场景）与完整时区数据
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=builder /build/panel-server /app/panel-server
+COPY config.json /app/config.json
+
+# SQLite 数据库持久化目录（通过卷挂载）
+VOLUME ["/app/data"]
+
+# HTTP 面板 / MQTT broker
+EXPOSE 9527 1883
+
+ENTRYPOINT ["/app/panel-server"]
+CMD ["-config", "/app/config.json", "-db", "/app/data/panel.db"]

@@ -1,0 +1,17 @@
+# Go 本地构建产物
+panel-server.exe
+panel-server
+
+# 本地数据与临时文件
+panel.db
+panel.db-*
+login.json
+task.json
+*.log
+
+# 模拟设备脚本（仅本地验证用）
+sim_device.py
+
+# Windows 工具与无关目录
+tools
+.git

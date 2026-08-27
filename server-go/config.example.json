@@ -1,0 +1,14 @@
+{
+  "jwtSecret": "请修改为一串随机字符串",
+  "user": {
+    "username": "admin",
+    "password": "请填入 bcrypt 密文（首次部署可先留空，启动后用面板「设置」修改密码保存即可生成）"
+  },
+  "tokenVersion": 1,
+  "port": 9527,
+  "mqtt": {
+    "host": "0.0.0.0",
+    "port": 1883
+  },
+  "dbPath": "panel.db"
+}

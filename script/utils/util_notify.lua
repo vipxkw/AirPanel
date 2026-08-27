@@ -300,6 +300,37 @@ local notify = {
         log.info("util_notify", "POST", config.SERVERCHAN_API)
         return util_http.fetch(nil, "POST", config.SERVERCHAN_API, header, urlencodeTab(body))
     end,
+    -- 发送到 message-pusher
+    -- https://github.com/vipxkw/message-pusher
+    ["message-pusher"] = function(msg)
+        if config.MESSAGE_PUSHER_API == nil or config.MESSAGE_PUSHER_API == "" then
+            log.error("util_notify", "未配置 `config.MESSAGE_PUSHER_API`")
+            return
+        end
+        if config.MESSAGE_PUSHER_USERNAME == nil or config.MESSAGE_PUSHER_USERNAME == "" then
+            log.error("util_notify", "未配置 `config.MESSAGE_PUSHER_USERNAME`")
+            return
+        end
+
+        local url = config.MESSAGE_PUSHER_API .. "/push/" .. config.MESSAGE_PUSHER_USERNAME
+        -- description 为必填字段
+        local body = { description = msg }
+        -- 以下均为选填
+        if config.MESSAGE_PUSHER_TITLE and config.MESSAGE_PUSHER_TITLE ~= "" then
+            body.title = config.MESSAGE_PUSHER_TITLE
+        end
+        if config.MESSAGE_PUSHER_CHANNEL and config.MESSAGE_PUSHER_CHANNEL ~= "" then
+            body.channel = config.MESSAGE_PUSHER_CHANNEL
+        end
+        if config.MESSAGE_PUSHER_TOKEN and config.MESSAGE_PUSHER_TOKEN ~= "" then
+            body.token = config.MESSAGE_PUSHER_TOKEN
+        end
+
+        local header = { ["Content-Type"] = "application/x-www-form-urlencoded" }
+
+        log.info("util_notify", "POST", url)
+        return util_http.fetch(nil, "POST", url, header, urlencodeTab(body))
+    end,
 }
 
 --- 构建设备信息字符串, 用于追加到通知消息中

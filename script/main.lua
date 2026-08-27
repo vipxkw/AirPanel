@@ -33,7 +33,7 @@ require "handler_sms"
 require "usbmsc"
 require "websocket"
 
-local util_websocket = require "util_websocket"
+local util_mqtt = require "util_mqtt"
 -- 配置
 local GOTIFY_POLL_INTERVAL = 20 * 1000 -- 轮询间隔 20 秒
 -- 输出音频通道选项, 0:听筒 1:耳机 2:喇叭
@@ -277,9 +277,9 @@ sys.taskInit(function()
     -- 等待获取 Band 值
     -- sys.wait(1000 * 5)
 	
-    if config.WEBSOCKET_URL and config.WEBSOCKET_URL ~= "" then
-        log.info("main", "WebSocket URL 已配置，开始启动WebSocket连接。")
-        util_websocket.start()
+    if config.MQTT_HOST and config.MQTT_HOST ~= "" then
+        log.info("main", "MQTT 服务端已配置，开始启动 MQTT 连接。")
+        util_mqtt.start()
     end
     -- 开机通知
     if nvm.get("BOOT_NOTIFY") then

@@ -1,20 +1,21 @@
 version: '3'
 
 services:
-  websocket-server:
-    container_name: wss
+  panel-server:
+    container_name: air724ug-panel
     build:
-      context: ./server
+      context: ./server-go
       dockerfile: Dockerfile
-      args:
-        - NODE_ENV=production
-    image: websocket-server:latest
-    pull_policy: always
+    image: air724ug-panel:latest
     ports:
+      # HTTP 管理面板
       - "9527:9527"
+      # MQTT broker（设备接入）
+      - "1883:1883"
     volumes:
-      - ./server:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=production
+      # SQLite 数据持久化
+      - panel-data:/app/data
     restart: unless-stopped
+
+volumes:
+  panel-data:

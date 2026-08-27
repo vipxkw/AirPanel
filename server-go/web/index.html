@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Air724UG 管理面板</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="bg-slate-100 text-slate-900 min-h-screen">
+
+  <!-- ===================== 登录视图 ===================== -->
+  <div id="login-view" class="hidden min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-sm">
+      <div class="card p-8">
+        <div class="flex flex-col items-center mb-8">
+          <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold shadow-lg mb-4">A</div>
+          <h1 class="text-xl font-semibold text-slate-900">Air724UG 管理面板</h1>
+          <p class="text-sm text-slate-500 mt-1">请登录以管理设备</p>
+        </div>
+        <form id="login-form" class="space-y-4">
+          <div>
+            <label class="label" for="login-username">用户名</label>
+            <input id="login-username" type="text" class="input" placeholder="请输入用户名" autocomplete="username" required>
+          </div>
+          <div>
+            <label class="label" for="login-password">密码</label>
+            <input id="login-password" type="password" class="input" placeholder="请输入密码" autocomplete="current-password" required>
+          </div>
+          <p id="login-error" class="hidden text-sm text-red-600"></p>
+          <button type="submit" id="login-btn" class="btn btn-primary w-full">登 录</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== 主视图 ===================== -->
+  <div id="main-view" class="hidden">
+    <div class="min-h-screen md:flex">
+      <!-- 移动端侧边栏遮罩 -->
+      <div id="sidebar-overlay" class="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm hidden md:hidden"></div>
+
+      <!-- 侧边栏（桌面常驻，移动端抽屉式） -->
+      <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 w-64 shrink-0 -translate-x-full bg-slate-900 text-slate-300 flex flex-col transition-transform duration-300 ease-in-out md:static md:translate-x-0 md:h-screen">
+        <div class="h-16 flex items-center gap-2.5 px-5 border-b border-slate-800">
+          <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-sm font-bold">A</div>
+          <span class="font-semibold text-white">Air724UG 面板</span>
+        </div>
+        <nav class="flex-1 py-4 px-3 space-y-1">
+          <a href="#" data-nav="devices" class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white">
+            <span class="text-base">📡</span> 设备列表
+          </a>
+          <a href="#" data-nav="tasks" class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white">
+            <span class="text-base">⚡</span> 任务执行
+          </a>
+          <a href="#" data-nav="logs" class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white">
+            <span class="text-base">📋</span> 任务记录
+          </a>
+          <a href="#" data-nav="settings" class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white">
+            <span class="text-base">⚙️</span> 设置
+          </a>
+        </nav>
+        <div class="p-4 border-t border-slate-800">
+          <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-xs font-semibold text-white" id="user-avatar">U</div>
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-white truncate" id="user-name">admin</p>
+            </div>
+            <button id="logout-btn" class="text-sm text-slate-400 hover:text-white" title="退出登录">退出</button>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 内容区 -->
+      <div class="flex-1 min-w-0 flex flex-col">
+
+        <!-- 移动端顶栏 -->
+        <header class="md:hidden sticky top-0 z-20 flex items-center gap-3 h-14 px-4 bg-slate-900 text-white border-b border-slate-800">
+          <button id="menu-btn" class="w-9 h-9 -ml-2 inline-flex items-center justify-center rounded-lg text-slate-300 hover:bg-slate-800 active:scale-95 transition" aria-label="打开菜单">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+          </button>
+          <span class="font-semibold">Air724UG 面板</span>
+          <span class="ml-auto text-xs text-slate-400" id="m-user-name"></span>
+        </header>
+
+        <main class="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto">
+
+        <!-- 设备列表 -->
+        <section id="page-devices" class="page">
+          <div class="flex items-center justify-between mb-4 sm:mb-6">
+            <div>
+              <h2 class="text-lg sm:text-xl font-semibold text-slate-900">设备列表</h2>
+              <p class="text-sm text-slate-500 mt-0.5">通过 MQTT 接入的 Air724UG 设备</p>
+            </div>
+            <button id="refresh-devices" class="btn btn-ghost">刷新</button>
+          </div>
+          <div class="card overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-slate-50 text-left text-xs font-medium text-slate-500 uppercase">
+                    <th class="px-4 py-3">IMEI</th>
+                    <th class="px-4 py-3">手机号</th>
+                    <th class="px-4 py-3">状态</th>
+                    <th class="px-4 py-3">首次接入</th>
+                    <th class="px-4 py-3">最近活跃</th>
+                    <th class="px-4 py-3 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="devices-tbody" class="divide-y divide-slate-100">
+                  <tr><td colspan="6" class="px-4 py-10 text-center text-slate-400">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- 任务执行（指挥台） -->
+        <section id="page-tasks" class="page hidden">
+          <div class="mb-5">
+            <h2 class="text-lg sm:text-xl font-semibold text-slate-900">任务指挥台</h2>
+            <p class="text-sm text-slate-500 mt-0.5">三步完成一次设备控制指令下发</p>
+          </div>
+
+          <!-- 步骤指示器 -->
+          <div class="flex items-center gap-2.5 mb-6 text-xs font-medium">
+            <span class="step-chip" data-step="1"><span class="step-num">1</span>选择设备</span>
+            <span class="step-line"></span>
+            <span class="step-chip" data-step="2"><span class="step-num">2</span>选择任务</span>
+            <span class="step-line"></span>
+            <span class="step-chip" data-step="3"><span class="step-num">3</span>下发执行</span>
+          </div>
+
+          <div class="grid gap-5 lg:grid-cols-5">
+            <!-- 左：任务配置 -->
+            <div class="lg:col-span-3 space-y-5">
+              <form id="task-form" class="space-y-5">
+                <!-- Step 1 设备 -->
+                <div class="card p-5 sm:p-6">
+                  <div class="flex items-center justify-between mb-4">
+                    <h3 class="font-semibold text-slate-900 flex items-center gap-2">
+                      <span class="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold shadow-sm">1</span>
+                      选择目标设备
+                    </h3>
+                    <span class="text-xs text-slate-400" id="task-device-count"></span>
+                  </div>
+                  <div class="relative">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"/></svg>
+                    <select id="task-imei" class="input !pl-9" required></select>
+                  </div>
+                  <p class="text-xs text-slate-400 mt-2">选择要下发的设备，离线设备将无法执行</p>
+                </div>
+
+                <!-- Step 2 任务类型 -->
+                <div class="card p-5 sm:p-6">
+                  <h3 class="font-semibold text-slate-900 flex items-center gap-2 mb-4">
+                    <span class="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold shadow-sm">2</span>
+                    选择任务类型
+                  </h3>
+                  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="task-type-grid">
+                    <label class="task-card">
+                      <input type="radio" name="task-type" value="get_temperature" checked class="task-radio">
+                      <span class="task-card-inner">
+                        <span class="text-2xl">🌡️</span>
+                        <span class="task-card-title">查询温度</span>
+                        <small>读取设备温度</small>
+                      </span>
+                    </label>
+                    <label class="task-card">
+                      <input type="radio" name="task-type" value="send_sms" class="task-radio">
+                      <span class="task-card-inner">
+                        <span class="text-2xl">📱</span>
+                        <span class="task-card-title">发送短信</span>
+                        <small>设备下发短信</small>
+                      </span>
+                    </label>
+                    <label class="task-card">
+                      <input type="radio" name="task-type" value="get_config" class="task-radio">
+                      <span class="task-card-inner">
+                        <span class="text-2xl">📄</span>
+                        <span class="task-card-title">读取配置</span>
+                        <small>返回 nvm_para.lua</small>
+                      </span>
+                    </label>
+                    <label class="task-card">
+                      <input type="radio" name="task-type" value="set_config" class="task-radio">
+                      <span class="task-card-inner">
+                        <span class="text-2xl">✏️</span>
+                        <span class="task-card-title">写入配置</span>
+                        <small>覆盖 nvm_para.lua</small>
+                      </span>
+                    </label>
+                  </div>
+
+                  <!-- 发送短信参数 -->
+                  <div id="params-send_sms" class="hidden mt-5 space-y-4 border-t border-slate-100 pt-5">
+                    <div>
+                      <label class="label" for="task-rcv-phone">接收手机号</label>
+                      <input id="task-rcv-phone" type="text" class="input" placeholder="例如 13800138000">
+                    </div>
+                    <div>
+                      <label class="label" for="task-content">短信内容</label>
+                      <textarea id="task-content" rows="2" class="input" placeholder="短信内容"></textarea>
+                    </div>
+                  </div>
+
+                  <!-- 写入配置参数 -->
+                  <div id="params-set_config" class="hidden mt-5 space-y-4 border-t border-slate-100 pt-5">
+                    <div>
+                      <label class="label" for="task-config-text">配置内容（Lua 格式，将写入设备 /nvm_para.lua）</label>
+                      <textarea id="task-config-text" rows="8" class="input font-mono text-xs" placeholder="module(..., package.seeall)&#10;..."></textarea>
+                    </div>
+                  </div>
+
+                  <!-- 附加参数 -->
+                  <div class="mt-5 border-t border-slate-100 pt-5">
+                    <label class="label" for="task-extra">附加参数 <span class="text-slate-400 font-normal">（可选 JSON）</span></label>
+                    <input id="task-extra" type="text" class="input font-mono text-xs" placeholder='{"key": "value"}' value="">
+                  </div>
+
+                  <!-- 执行 -->
+                  <button type="submit" id="task-btn" class="mt-6 w-full btn btn-primary !py-3 text-base bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 border-0 shadow-lg shadow-blue-600/20">⚡ 下发任务</button>
+                </div>
+              </form>
+            </div>
+
+            <!-- 右：实时控制台 -->
+            <div class="lg:col-span-2 space-y-5">
+              <div class="rounded-2xl bg-slate-900 shadow-xl overflow-hidden ring-1 ring-slate-800">
+                <div class="flex items-center gap-2 px-4 py-3 bg-slate-800/80">
+                  <span class="w-3 h-3 rounded-full bg-red-400/80"></span>
+                  <span class="w-3 h-3 rounded-full bg-amber-400/80"></span>
+                  <span class="w-3 h-3 rounded-full bg-emerald-400/80"></span>
+                  <span class="ml-2 text-xs text-slate-300 font-medium tracking-wide">任务控制台</span>
+                  <button type="button" id="console-clear" class="ml-auto text-xs text-slate-400 hover:text-white transition-colors">清空</button>
+                </div>
+                <div id="task-result" class="terminal font-mono text-xs leading-relaxed text-slate-300 p-4 h-80 overflow-auto">
+                  <p class="text-slate-500">// 等待下发任务...</p>
+                </div>
+              </div>
+
+              <div class="card p-5">
+                <h3 class="text-sm font-semibold text-slate-900 mb-2">📌 任务说明</h3>
+                <ul class="text-sm text-slate-500 space-y-1.5 list-disc pl-5">
+                  <li><b>查询温度</b>：读取设备当前温度</li>
+                  <li><b>发送短信</b>：由设备下发短信，需接收手机号与内容</li>
+                  <li><b>读取配置</b>：返回设备上的 <code class="text-slate-700 font-mono text-xs">/nvm_para.lua</code> 内容</li>
+                  <li><b>写入配置</b>：将 Lua 配置写入设备并生效</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 任务记录 -->
+        <section id="page-logs" class="page hidden">
+          <div class="mb-4 sm:mb-6">
+            <h2 class="text-lg sm:text-xl font-semibold text-slate-900">任务记录</h2>
+            <p class="text-sm text-slate-500 mt-0.5">最近执行的任务（最多 50 条）</p>
+          </div>
+          <div class="card overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-slate-50 text-left text-xs font-medium text-slate-500 uppercase">
+                    <th class="px-4 py-3">时间</th>
+                    <th class="px-4 py-3">IMEI</th>
+                    <th class="px-4 py-3">任务</th>
+                    <th class="px-4 py-3">状态</th>
+                    <th class="px-4 py-3">结果</th>
+                  </tr>
+                </thead>
+                <tbody id="tasks-tbody" class="divide-y divide-slate-100">
+                  <tr><td colspan="5" class="px-4 py-10 text-center text-slate-400">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- 设置 -->
+        <section id="page-settings" class="page hidden">
+          <div class="mb-4 sm:mb-6">
+            <h2 class="text-lg sm:text-xl font-semibold text-slate-900">设置</h2>
+            <p class="text-sm text-slate-500 mt-0.5">修改登录账号信息</p>
+          </div>
+          <div class="max-w-md">
+            <div class="card p-6">
+              <form id="settings-form" class="space-y-4">
+                <div>
+                  <label class="label" for="set-current-username">当前用户名</label>
+                  <input id="set-current-username" type="text" class="input bg-slate-50 text-slate-500" readonly>
+                </div>
+                <div>
+                  <label class="label" for="set-old-password">原密码</label>
+                  <input id="set-old-password" type="password" class="input" required autocomplete="current-password">
+                </div>
+                <div>
+                  <label class="label" for="set-new-username">新用户名 <span class="text-slate-400 font-normal">（留空则不修改）</span></label>
+                  <input id="set-new-username" type="text" class="input" autocomplete="username">
+                </div>
+                <div>
+                  <label class="label" for="set-new-password">新密码 <span class="text-slate-400 font-normal">（留空则不修改）</span></label>
+                  <input id="set-new-password" type="password" class="input" autocomplete="new-password">
+                </div>
+                <p id="settings-msg" class="hidden text-sm"></p>
+                <button type="submit" class="btn btn-primary w-full">保存修改</button>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        </main>
+      </div>
+    </div>
+  </div>
+
+  <!-- 提示浮层 -->
+  <div id="toast" class="hidden fixed top-5 left-1/2 -translate-x-1/2 z-50 rounded-lg px-4 py-2.5 text-sm text-white shadow-lg"></div>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

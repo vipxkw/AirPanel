@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
+  }
+  .btn-ghost {
+    @apply bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 focus:ring-slate-400;
+  }
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-700 focus:ring-red-500;
+  }
+  .input {
+    @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+  }
+  .label {
+    @apply block text-sm font-medium text-slate-700 mb-1.5;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-slate-200 shadow-sm;
+  }
+  .badge-online {
+    @apply inline-flex items-center rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-700;
+  }
+  .badge-offline {
+    @apply inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-500;
+  }
+
+  /* ---- 任务指挥台 ---- */
+
+  /* 步骤指示器 */
+  .step-chip {
+    @apply inline-flex items-center gap-1.5 text-slate-400;
+  }
+  .step-chip.active {
+    @apply text-blue-600;
+  }
+  .step-num {
+    @apply flex items-center justify-center w-5 h-5 rounded-full bg-slate-200 text-slate-500 text-[10px] font-bold;
+  }
+  .step-chip.active .step-num {
+    @apply bg-blue-600 text-white;
+  }
+  .step-line {
+    @apply flex-1 h-px bg-slate-200;
+  }
+
+  /* 任务类型卡片 */
+  .task-card-inner {
+    @apply flex flex-col items-center gap-1.5 rounded-xl border-2 border-slate-200 bg-white px-2 py-4 text-center cursor-pointer select-none transition-all duration-150 hover:border-blue-300 hover:bg-blue-50/60;
+  }
+  .task-card-inner .task-card-title {
+    @apply text-sm font-medium text-slate-800;
+  }
+  .task-card-inner small {
+    @apply text-[11px] text-slate-400 leading-tight;
+  }
+  .task-radio:checked + .task-card-inner {
+    @apply border-blue-500 bg-blue-50 shadow-md shadow-blue-500/10 scale-[1.03];
+  }
+  .task-radio:checked + .task-card-inner .task-card-title {
+    @apply text-blue-700;
+  }
+  .task-radio:checked + .task-card-inner small {
+    @apply text-blue-500;
+  }
+  .task-radio:focus-visible + .task-card-inner {
+    @apply ring-2 ring-blue-300;
+  }
+
+  /* 终端控制台 */
+  .terminal {
+    scrollbar-width: thin;
+    scrollbar-color: #334155 transparent;
+  }
+  .terminal::-webkit-scrollbar {
+    width: 8px;
+  }
+  .terminal::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 4px;
+  }
+}

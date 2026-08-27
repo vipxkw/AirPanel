@@ -16,7 +16,7 @@ module(...)
 -------------------------------------------------- 通知相关配置 --------------------------------------------------
 
 -- 通知类型, 支持配置多个
--- NOTIFY_TYPE = { "custom_post", "telegram", "pushdeer", "bark", "dingtalk", "feishu", "wecom", "pushover", "inotify", "next-smtp-proxy", "gotify", "serverchan" }
+-- NOTIFY_TYPE = { "custom_post", "telegram", "pushdeer", "bark", "dingtalk", "feishu", "wecom", "pushover", "inotify", "next-smtp-proxy", "gotify", "serverchan", "message-pusher" }
 NOTIFY_TYPE = { "gotify" }
 
 -- custom_post 通知配置, 自定义 POST 请求
@@ -78,7 +78,28 @@ GOTIFY_TOKEN = ""
 -- gotify 客户端token(即为配置好的client的token)
 GOTIFY_CLIENT_TOKEN=""
 
-WEBSOCKET_URL=""
+-- message-pusher 通知配置, https://github.com/vipxkw/message-pusher
+-- 部署后通过 {服务端}/push/{用户名} 接口发送, description 为必填字段
+-- MESSAGE_PUSHER_API = "https://msgpusher.com"   -- 服务端地址(自建则填 http://IP:3000)
+-- MESSAGE_PUSHER_USERNAME = "test"               -- 推送用户名
+-- MESSAGE_PUSHER_TOKEN = ""                      -- 后台若设置了推送 token 则必填, 否则留空
+-- MESSAGE_PUSHER_CHANNEL = ""                    -- 指定推送通道类型(如 lark/telegram/bark/ding/corp...), 留空使用后台默认通道
+-- MESSAGE_PUSHER_TITLE = "来自 Air724UG 的通知"   -- 标题(选填)
+
+-------------------------------------------------- 服务端 MQTT 对接配置 --------------------------------------------------
+
+-- 通过 MQTT 对接自建服务端（Go 服务端内置 broker），替代原 WebSocket 方式以节省流量
+-- MQTT_HOST 填写服务端地址，例如 "192.168.1.100" 或 "panel.example.com"
+MQTT_HOST = ""
+-- MQTT 端口，默认 1883
+MQTT_PORT = 1883
+-- 心跳间隔（秒），默认 300 秒，仅在此间隔发送一次 2 字节的心跳包，可大幅节省流量
+MQTT_KEEPALIVE = 300
+-- 客户端 ID，留空自动使用 IMEI
+MQTT_CLIENT_ID = ""
+-- 服务端若启用了 MQTT 认证则填写，否则留空
+MQTT_USERNAME = ""
+MQTT_PASSWORD = ""
 
 -- serverchan 通知配置
 -- SERVERCHAN_TITLE = "来自 Air724UG 的通知"
