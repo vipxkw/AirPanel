@@ -261,9 +261,15 @@
 
         <!-- 任务记录 -->
         <section id="page-logs" class="page hidden">
-          <div class="mb-4 sm:mb-6">
-            <h2 class="text-lg sm:text-xl font-semibold text-slate-900">任务记录</h2>
-            <p class="text-sm text-slate-500 mt-0.5">最近执行的任务（最多 50 条）</p>
+          <div class="mb-4 sm:mb-6 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 class="text-lg sm:text-xl font-semibold text-slate-900">任务记录</h2>
+              <p class="text-sm text-slate-500 mt-0.5">最近执行的任务（最多 50 条）</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="clear-tasks-7d" class="btn btn-ghost !px-3 !py-1.5 text-xs">清理 7 天前</button>
+              <button id="clear-tasks-all" class="btn btn-ghost !px-3 !py-1.5 text-xs text-red-600 hover:text-red-700 hover:border-red-300 hover:bg-red-50">删除全部</button>
+            </div>
           </div>
           <div class="card overflow-hidden">
             <div class="overflow-x-auto">
@@ -336,6 +342,26 @@
 
   <!-- 提示浮层 -->
   <div id="toast" class="hidden fixed top-5 left-1/2 -translate-x-1/2 z-50 rounded-lg px-4 py-2.5 text-sm text-white shadow-lg"></div>
+
+  <!-- 自定义确认弹窗 -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="confirm-overlay" class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-sm card p-6 shadow-2xl">
+      <div class="flex items-start gap-3.5">
+        <div class="w-10 h-10 shrink-0 rounded-full bg-red-50 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        </div>
+        <div class="flex-1 min-w-0">
+          <h3 id="confirm-title" class="text-sm font-semibold text-slate-900">确认操作</h3>
+          <p id="confirm-message" class="mt-1 text-sm text-slate-500 break-words"></p>
+        </div>
+      </div>
+      <div class="mt-5 flex justify-end gap-2.5">
+        <button id="confirm-cancel" class="btn btn-ghost !px-4 !py-2 text-sm">取消</button>
+        <button id="confirm-ok" class="btn !px-4 !py-2 text-sm bg-red-600 text-white hover:bg-red-700 border-transparent">确认删除</button>
+      </div>
+    </div>
+  </div>
 
   <script src="/js/api.js"></script>
   <script src="/js/app.js"></script>

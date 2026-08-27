@@ -42,6 +42,7 @@ func (api *API) routes() http.Handler {
 	mux.HandleFunc("/api/device/remark", api.authenticate(api.handleUpdateDeviceRemark))
 	mux.HandleFunc("/api/executeTask", api.authenticate(api.handleExecuteTask))
 	mux.HandleFunc("/api/tasks", api.authenticate(api.handleTasks))
+	mux.HandleFunc("/api/tasks/clear", api.authenticate(api.handleClearTasks))
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
@@ -242,6 +243,25 @@ func (api *API) handleTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, tasks)
+}
+
+// handleClearTasks 删除任务记录。body: {"days": 7} 表示删除 7 天前的旧日志（保留近 7 天）；days <= 0 或缺省表示删除全部。
+func (api *API) handleClearTasks(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Days int `json:"days"`
+	}
+	// 允许空请求体（视为删除全部）
+	if err := decodeJSON(r, &body); err != nil && err.Error() != "EOF" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	n, err := api.app.db.deleteTasks(body.Days)
+	if err != nil {
+		log.Printf("删除任务记录失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "删除失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "删除成功", "deleted": n})
 }
 
 // ---------------- 静态资源 ----------------

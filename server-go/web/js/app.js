@@ -322,6 +322,43 @@
     }
   }
 
+  // ---------------- 自定义确认弹窗 ----------------
+
+  let confirmResolver = null;
+
+  // 打开确认弹窗，返回 Promise<boolean>（确认=true / 取消=false）
+  function showConfirm(message, title = '确认操作', okText = '确认删除') {
+    $('#confirm-title').textContent = title;
+    $('#confirm-message').textContent = message;
+    $('#confirm-ok').textContent = okText;
+    $('#confirm-modal').classList.remove('hidden');
+    $('#confirm-ok').focus();
+    return new Promise((resolve) => { confirmResolver = resolve; });
+  }
+
+  function closeConfirm(result) {
+    $('#confirm-modal').classList.add('hidden');
+    if (confirmResolver) {
+      confirmResolver(result);
+      confirmResolver = null;
+    }
+  }
+
+  // 清理任务日志（days > 0 删除 days 天前旧日志，days <= 0 删除全部）
+  async function clearTasks(days) {
+    const ok = await showConfirm(
+      days > 0 ? '确定删除 7 天前的旧日志吗？删除后不可恢复。' : '确定删除全部任务记录吗？删除后不可恢复。'
+    );
+    if (!ok) return;
+    try {
+      const data = await API.clearTasks({ days });
+      toast(`已删除 ${data.deleted} 条记录`);
+      loadTasks();
+    } catch (err) {
+      toast(err.message, false);
+    }
+  }
+
   // ---------------- 设置 ----------------
 
   async function handleSettings(e) {
@@ -361,6 +398,14 @@
     $$('input[name="task-type"]').forEach((r) => r.addEventListener('change', onTaskTypeChange));
     $('#console-clear').addEventListener('click', resetConsole);
     $('#settings-form').addEventListener('submit', handleSettings);
+    $('#clear-tasks-7d').addEventListener('click', () => clearTasks(7));
+    $('#clear-tasks-all').addEventListener('click', () => clearTasks(0));
+    $('#confirm-cancel').addEventListener('click', () => closeConfirm(false));
+    $('#confirm-ok').addEventListener('click', () => closeConfirm(true));
+    $('#confirm-overlay').addEventListener('click', () => closeConfirm(false));
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && !$('#confirm-modal').classList.contains('hidden')) closeConfirm(false);
+    });
     $('#menu-btn').addEventListener('click', () => toggleSidebar(true));
     $('#sidebar-overlay').addEventListener('click', () => toggleSidebar(false));
 

@@ -46,6 +46,9 @@ const API = {
   tasks() {
     return this.request('GET', '/tasks');
   },
+  clearTasks(payload) {
+    return this.request('POST', '/tasks/clear', payload);
+  },
   changeUserInfo(payload) {
     return this.request('POST', '/change-user-info', payload);
   },

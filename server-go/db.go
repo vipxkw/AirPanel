@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -133,6 +134,24 @@ func (d *DB) recentTasks(limit int) ([]TaskRecord, error) {
 		out = append(out, rec)
 	}
 	return out, rows.Err()
+}
+
+// deleteTasks 删除任务记录。days > 0 时只删除距今超过 days 天的旧日志（保留近 days 天）；days <= 0 时删除全部。
+// 返回被删除的记录条数。
+func (d *DB) deleteTasks(days int) (int64, error) {
+	if days > 0 {
+		cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour).Unix()
+		res, err := d.sql.Exec(`DELETE FROM tasks WHERE created_at < ?`, cutoff)
+		if err != nil {
+			return 0, err
+		}
+		return res.RowsAffected()
+	}
+	res, err := d.sql.Exec(`DELETE FROM tasks`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func b2i(b bool) int {
