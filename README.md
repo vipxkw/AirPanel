@@ -2,7 +2,7 @@
 
 基于合宙 Air724UG（LuatOS-Air）4G 模组的远程管理面板与短信/通话转发器。
 
-设备端固件基于 [0wQ/air724ug-forwarder](https://github.com/0wQ/air724ug-forwarder) 修改扩展；服务端由 Node.js 版本迁移重构为 **Go 单二进制**（内置 HTTP 面板 + MQTT Broker），前端使用 **Tailwind CSS** 构建，相比原 WebSocket 方案显著降低设备流量消耗。
+设备端固件基于 [0wQ/air724ug-forwarder](https://github.com/0wQ/air724ug-forwarder) 修改扩展；服务端由 **Go 单二进制**（内置 HTTP 面板 + MQTT Broker），前端使用 **Tailwind CSS** 构建，相比原 WebSocket 方案显著降低设备流量消耗。
 
 > 请勿用于非法用途及盈利。
 
@@ -14,6 +14,24 @@
 - **远程配置**：读取 / 写入设备端 `nvm_para.lua` 参数文件，支持动态修改设备配置
 - **多通道通知**：设备端支持 gotify / telegram / bark / 钉钉 / 飞书 / 企业微信 / pushover / message-pusher 等通知渠道
 - **单二进制部署**：前端静态资源通过 `go:embed` 内嵌进 Go 二进制，支持 Docker 一键部署
+
+## 界面预览
+
+### 设备列表
+
+![设备列表](screenshots/ScreenShot_2026-08-27_224939_410.png)
+
+### 任务执行
+
+![任务执行](screenshots/ScreenShot_2026-08-27_224957_057.png)
+
+### 任务记录
+
+![任务记录](screenshots/ScreenShot_2026-08-27_225002_085.png)
+
+### 设置界面
+
+![设置界面](screenshots/ScreenShot_2026-08-27_225007_118.png)
 
 ## 系统架构
 
