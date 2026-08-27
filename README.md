@@ -55,8 +55,6 @@ air724ug_web_panel/
 │   ├── sim_device.py     # 模拟设备脚本（无实体设备时联调用）
 │   ├── Dockerfile
 │   └── panel-server.exe  # 构建产物
-├── server/               # 旧版 Node.js 服务端（已废弃，仅留存参考）
-├── web/                  # 旧版 Vue 前端（已废弃，仅留存参考）
 ├── docker-compose.yml    # Docker 一键部署
 └── core/                 # 设备端底层固件包
 ```

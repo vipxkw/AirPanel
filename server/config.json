@@ -1,8 +1,0 @@
-{
-  "jwtSecret": "TheHot",
-  "user": {
-    "username": "admin",
-    "password": "$2b$10$m6pPOpDHaWlEtWRimB5dMudvU9s2H5cSX2wiA6fE8OiS2VewAm0cC"
-  },
-  "tokenVersion": 1
-}
