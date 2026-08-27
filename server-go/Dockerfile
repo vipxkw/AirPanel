@@ -24,7 +24,9 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /build/panel-server /app/panel-server
-COPY config.json /app/config.json
+
+# config.json 含敏感凭据，不入镜像也不入库；
+# 首次启动时服务会自动生成默认配置（admin/admin123），如需自定义可用卷挂载 config.json
 
 # SQLite 数据库持久化目录（通过卷挂载）
 VOLUME ["/app/data"]
