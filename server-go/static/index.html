@@ -248,11 +248,12 @@
 
               <div class="card p-5">
                 <h3 class="text-sm font-semibold text-slate-900 mb-2">📌 任务说明</h3>
-                <ul class="text-sm text-slate-500 space-y-1.5 list-disc pl-5">
+                <ul class="text-sm text-slate-500 space-y-1.5">
                   <li><b>查询温度</b>：读取设备当前温度</li>
                   <li><b>发送短信</b>：由设备下发短信，需接收手机号与内容</li>
                   <li><b>读取配置</b>：返回设备上的 <code class="text-slate-700 font-mono text-xs">/nvm_para.lua</code> 内容</li>
                   <li><b>写入配置</b>：将 Lua 配置写入设备并生效</li>
+                  <li><a href="javascript:void(0)" id="task-library-link" class="text-blue-600 hover:text-blue-700 underline decoration-blue-300">更多命令：点击查看</a></li>
                 </ul>
               </div>
             </div>
@@ -359,6 +360,46 @@
       <div class="mt-5 flex justify-end gap-2.5">
         <button id="confirm-cancel" class="btn btn-ghost !px-4 !py-2 text-sm">取消</button>
         <button id="confirm-ok" class="btn !px-4 !py-2 text-sm bg-red-600 text-white hover:bg-red-700 border-transparent">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 命令大全弹窗 -->
+  <div id="task-library-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div id="task-library-overlay" class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-md card p-6 shadow-2xl max-h-[85vh] flex flex-col">
+      <div class="flex items-start justify-between gap-3 shrink-0">
+        <div>
+          <h3 class="text-base font-semibold text-slate-900">命令大全</h3>
+          <p class="mt-0.5 text-xs text-slate-400">设备支持的全部远程命令，点击命令查看详细用法与参数</p>
+        </div>
+        <button id="task-library-close" class="text-slate-400 hover:text-slate-700 transition-colors shrink-0" aria-label="关闭">
+          <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="task-library-body" class="mt-4 overflow-auto space-y-5 pr-1"></div>
+      <div class="mt-5 pt-4 border-t border-slate-100 flex justify-end shrink-0">
+        <button id="task-library-ok" class="btn btn-primary !px-4 !py-2 text-sm">我知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 命令说明弹窗 -->
+  <div id="task-help-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4">
+    <div id="task-help-overlay" class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-md card p-6 shadow-2xl max-h-[85vh] flex flex-col">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h3 id="task-help-title" class="text-base font-semibold text-slate-900"></h3>
+          <p id="task-help-cmd" class="mt-0.5 font-mono text-xs text-blue-600 bg-blue-50 rounded px-2 py-0.5 inline-block"></p>
+        </div>
+        <button id="task-help-close" class="text-slate-400 hover:text-slate-700 transition-colors shrink-0" aria-label="关闭">
+          <svg class="w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div id="task-help-body" class="mt-4 text-sm text-slate-600 leading-relaxed overflow-auto space-y-4"></div>
+      <div class="mt-5 pt-4 border-t border-slate-100 flex justify-end">
+        <button id="task-help-ok" class="btn btn-primary !px-4 !py-2 text-sm">我知道了</button>
       </div>
     </div>
   </div>

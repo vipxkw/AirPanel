@@ -217,6 +217,206 @@
     set_config: '写入配置',
   };
 
+  // 命令详细说明（任务说明弹窗内容）
+  const TASK_HELP = {
+    get_temperature: {
+      title: '查询温度',
+      desc: '读取设备（Air724UG 模组）当前的芯片温度，用于远程监控设备运行状态。',
+      params: [],
+      result: '返回温度数值（摄氏度），如 <code class="font-mono">38.28</code>。温度异常偏高可能意味着供电或散热问题。',
+      note: '无需任何参数，点击下方"下发任务"即可执行。设备必须在线。',
+    },
+    send_sms: {
+      title: '发送短信',
+      desc: '通过设备内置的 SIM 卡向外发送一条短信，收件方看到的是设备本机号码。',
+      params: [
+        ['rcv_phone', '接收手机号，如 13800138000'],
+        ['content', '短信内容。中文每 70 字一条，超出自动拆分为长短信（计多条费用）'],
+      ],
+      result: '成功返回 <code class="font-mono">"短信发送成功"</code>；失败返回具体原因（如 AT 指令错误、短信中心未配置）。',
+      note: '需设备 SIM 卡已注册网络且信号正常；短信费用由 SIM 卡套餐承担。',
+    },
+    get_config: {
+      title: '读取配置',
+      desc: '读取设备上的运行时配置文件 <code class="font-mono">/nvm_para.lua</code> 全文。该文件存放可远程修改的参数（通知渠道、MQTT 地址等），优先级高于编译进固件的 config.lua。',
+      params: [],
+      result: '返回 nvm_para.lua 的完整 Lua 源码文本。',
+      note: '如需修改，先读取当前配置作为底稿，改好后用"写入配置"写回，避免覆盖丢失其他参数。',
+    },
+    set_config: {
+      title: '写入配置',
+      desc: '用提交的 Lua 配置文本<b>整体覆盖</b>设备的 <code class="font-mono">/nvm_para.lua</code>，并立即生效（无需重启）。',
+      params: [
+        ['configText', '完整的 Lua 配置源码，必须以 <code class="font-mono">module(..., package.seeall)</code> 开头的合法 Lua 文件'],
+      ],
+      result: '成功返回 <code class="font-mono">{"success": true}</code>；语法错误时返回解析失败原因（此时不会写入文件）。',
+      note: '覆盖式写入！建议先执行"读取配置"拿到当前内容再修改提交，避免遗漏参数。写入失败（如断电）可能导致文件丢失，需重刷脚本恢复。',
+    },
+    get_status: {
+      title: '查询状态',
+      desc: '一次性汇总设备的运行状态：电压、温度、信号强度（RSSI/RSRP）、运营商、本机号码、当前 SIM 卡槽、网络注册状态。',
+      params: [],
+      result: '返回 JSON，如 <code class="font-mono">{"voltage":3856,"temperature":38.28,"rssi":25,"operator":"中国电信",...}</code>。电压单位 mV；RSSI 范围 0-31，越大信号越好。',
+      note: '无需参数。适合放在首页定期轮询，作为设备健康巡检。',
+    },
+    dial_call: {
+      title: '拨打电话',
+      desc: '通过设备 SIM 卡向外拨打电话。可用于触发目标手机的来电提醒（免打通话的变相通知方式）。',
+      params: [
+        ['phone', '被叫号码，如 13800138000'],
+      ],
+      result: '返回 <code class="font-mono">"拨打指令已执行: xxx"</code>。通话最长 300 秒自动挂断，可配合"挂断通话"提前结束。',
+      note: '按运营商通话资费计费。通话期间设备会暂停音频播放。',
+    },
+    hang_up: {
+      title: '挂断通话',
+      desc: '挂断设备当前正在进行中的通话。',
+      params: [],
+      result: '有通话时返回 <code class="font-mono">"挂断指令已执行"</code>；无通话时返回 <code class="font-mono">"当前无通话"</code>。',
+      note: '无需参数。常与"拨打电话"配合使用：拨通对方接听后（或响铃数秒后）挂断。',
+    },
+    tts_speak: {
+      title: '语音播报',
+      desc: '让设备扬声器用 TTS 朗读一段中文文本，适合远程寻人、现场提醒等场景。',
+      params: [
+        ['text', '要朗读的文本，如 "快递已到，请下楼取件"'],
+      ],
+      result: '返回 <code class="font-mono">"TTS 播报已执行"</code>。播报音量跟随设备当前音量设置。',
+      note: '通话进行中不会播放；设备音量为 0 时静音。可用"设置音量"命令先调高音量。',
+    },
+    set_volume: {
+      title: '设置音量',
+      desc: '同时设置设备的扬声器音量与通话音量（写入 nvm_para.lua 持久保存）。',
+      params: [
+        ['vol', '音量值，0-10 的整数。0 为静音'],
+      ],
+      result: '返回 <code class="font-mono">"音量已设置为 N"</code>。设置即时生效且重启后保留。',
+      note: '音量为 0 会同时静音扬声器与通话（通话录音无声）。通话中调节会即时生效。',
+    },
+    query_traffic: {
+      title: '查询流量',
+      desc: '按当前 SIM 卡运营商自动发送流量查询短信（移动发 10086、联通发 10010、电信发 10001）。运营商回复短信后，会自动触发通知推送。',
+      params: [],
+      result: '返回 <code class="font-mono">"流量查询短信已发送，运营商回复将推送通知"</code>，实际流量数据在回复短信里。',
+      note: '消耗一条普通短信费用。广电卡不支持自动查询代码。',
+    },
+    set_ccfc: {
+      title: '设置呼转',
+      desc: '设置无条件呼叫转移：所有来电转接到指定号码。传 <code class="font-mono">phone=0</code> 则取消所有呼转。',
+      params: [
+        ['phone', '呼转目标号码（5 位以上）；传 0 取消呼转'],
+      ],
+      result: '返回 <code class="font-mono">"呼转指令已下发: xxx"</code>。指令为异步下发，运营商生效结果以通知推送为准。',
+      note: '呼转生效后设备不再振铃，来电全部转接。取消时传 phone=0。',
+    },
+    switch_sim: {
+      title: '切换SIM',
+      desc: '在主/副卡槽之间切换 SIM 卡，设备将在 10 秒后自动重启使切换生效（与短信指令 SIMSWITCH 行为一致）。',
+      params: [],
+      result: '返回 <code class="font-mono">"切换SIM: 主卡槽 -> 副卡槽, 10秒后重启生效"</code>（方向视当前卡槽而定）。',
+      note: '设备会重启，期间 MQTT 短暂离线属正常现象。重启后约 1-2 分钟恢复在线。',
+    },
+    reboot: {
+      title: '重启设备',
+      desc: '远程重启设备（软重启），用于排除运行异常、恢复网络注册等。设备将在 10 秒后执行重启。',
+      params: [],
+      result: '返回 <code class="font-mono">"重启指令已接收, 10秒后重启"</code>，之后设备离线再自动恢复上线。',
+      note: '重启期间设备约 1-2 分钟离线。频繁重启请先排查供电稳定性（劣质充电器会导致反复重启）。',
+    },
+    get_device_info: {
+      title: '设备信息',
+      desc: '读取设备硬件标识：IMEI（模块串号）、SN、ICCID（SIM 卡序列号）、固件版本、模块型号。',
+      params: [],
+      result: '返回 JSON，如 <code class="font-mono">{"imei":"8681...","sn":"...","iccid":"8986...","version":"...","model":"..."}</code>',
+      note: '无需参数。设备首次接入面板后可通过此命令核对硬件身份。',
+    },
+    ussd_query: {
+      title: 'USSD 查询',
+      desc: '发送 USSD 交互码查询话费/流量余额（如电信 <code class="font-mono">*108#</code>）。运营商回复后，结果通过通知渠道（如 message-pusher）推送给你。',
+      params: [
+        ['code', 'USSD 查询码，如 *108#（各运营商不同，请自行确认）'],
+      ],
+      result: '返回 <code class="font-mono">"USSD 查询已发送: *108#，运营商回复将通过通知推送"</code>，实际余额在推送的通知里。',
+      note: 'USSD 会话会占用话音通道，查询后几秒内不要拨打/接听电话。物联网卡可能不支持 USSD。',
+    },
+    send_dtmf: {
+      title: '发送按键',
+      desc: '通话过程中向对端发送 DTMF 按键音。典型场景：自动拨打客服后输入分机号、语音信箱选单。',
+      params: [
+        ['dtmf', '按键字符串，仅支持数字和 ABCD*#，如 "123"'],
+      ],
+      result: '通话中返回 <code class="font-mono">"DTMF 已发送: xxx"</code>；无通话时报错"当前无通话"。',
+      note: '必须先"拨打电话"且通话建立后使用，每个按键默认播放 100ms。常与拨打电话配合实现自动语音流程。',
+    },
+    set_gpio: {
+      title: 'GPIO 控制',
+      desc: '设置指定 GPIO 引脚的输出电平（高/低）。外接继电器或 MOS 管即可实现远程控制电器开关、门禁等。',
+      params: [
+        ['pin', 'GPIO 引脚编号（数字），参考开发板引脚图'],
+        ['level', '输出电平：1 高电平（通常闭合继电器），0 低电平（断开）'],
+      ],
+      result: '返回 <code class="font-mono">"GPIOn 已输出 1"</code>。输出状态保持到下次修改或重启（重启后恢复默认）。',
+      note: 'GPIO 带载能力有限（毫安级），控制大电流设备务必经继电器隔离。引脚接错可能损坏模块，接线前核对引脚图。',
+    },
+  };
+
+  // 命令大全分组（"任务说明"弹窗与命令大全共用 TASK_HELP 数据）
+  const TASK_GROUPS = [
+    { name: '查询类', icon: '🔍', tasks: ['get_temperature', 'get_status', 'get_device_info', 'get_config', 'query_traffic'] },
+    { name: '通信类', icon: '💬', tasks: ['send_sms', 'dial_call', 'hang_up', 'send_dtmf', 'tts_speak', 'set_ccfc', 'ussd_query'] },
+    { name: '配置与系统', icon: '⚙️', tasks: ['set_config', 'set_volume', 'set_gpio', 'switch_sim', 'reboot'] },
+  ];
+
+  function renderTaskLibrary() {
+    const body = $('#task-library-body');
+    body.innerHTML = TASK_GROUPS.map((g) => `
+      <div>
+        <p class="text-xs font-semibold text-slate-800 mb-2">${g.icon} ${g.name}</p>
+        <ul class="rounded-xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+          ${g.tasks.map((t) => {
+            const h = TASK_HELP[t];
+            return h ? `<li>
+              <a href="javascript:void(0)" class="task-lib-item flex items-center justify-between gap-3 px-4 py-3 hover:bg-blue-50/60 transition-colors" data-task="${t}">
+                <span class="flex items-center gap-2.5 min-w-0">
+                  <span class="font-medium text-sm text-slate-800">${h.title}</span>
+                  <code class="font-mono text-[10px] text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 shrink-0">${t}</code>
+                </span>
+                <svg class="w-4 h-4 text-slate-300 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+              </a>
+            </li>` : '';
+          }).join('')}
+        </ul>
+      </div>`).join('');
+  }
+
+  function showTaskLibrary() {
+    renderTaskLibrary();
+    $('#task-library-modal').classList.remove('hidden');
+  }
+  function closeTaskLibrary() {
+    $('#task-library-modal').classList.add('hidden');
+  }
+
+  function showTaskHelp(task) {
+    const h = TASK_HELP[task];
+    if (!h) return;
+    $('#task-help-title').textContent = h.title;
+    $('#task-help-cmd').textContent = task;
+    let html = `<p>${h.desc}</p>`;
+    if (h.params.length) {
+      html += '<div><p class="font-semibold text-slate-800 text-xs mb-1.5">请求参数</p><ul class="space-y-1 list-disc pl-5">'
+        + h.params.map((p) => `<li><code class="font-mono text-xs bg-slate-100 rounded px-1.5 py-0.5">${p[0]}</code> — ${p[1]}</li>`).join('')
+        + '</ul></div>';
+    }
+    html += `<div><p class="font-semibold text-slate-800 text-xs mb-1.5">返回结果</p><p>${h.result}</p></div>`;
+    html += `<div class="rounded-lg bg-amber-50 border border-amber-100 px-3.5 py-2.5 text-xs text-amber-700">⚠️ ${h.note}</div>`;
+    $('#task-help-body').innerHTML = html;
+    $('#task-help-modal').classList.remove('hidden');
+  }
+  function closeTaskHelp() {
+    $('#task-help-modal').classList.add('hidden');
+  }
+
   function onTaskTypeChange() {
     const checked = document.querySelector('input[name="task-type"]:checked');
     if (!checked) return;
@@ -403,8 +603,28 @@
     $('#confirm-cancel').addEventListener('click', () => closeConfirm(false));
     $('#confirm-ok').addEventListener('click', () => closeConfirm(true));
     $('#confirm-overlay').addEventListener('click', () => closeConfirm(false));
+
+    // 命令大全弹窗
+    $('#task-library-link').addEventListener('click', showTaskLibrary);
+    $('#task-library-close').addEventListener('click', closeTaskLibrary);
+    $('#task-library-ok').addEventListener('click', closeTaskLibrary);
+    $('#task-library-overlay').addEventListener('click', closeTaskLibrary);
+    // 命令大全内点击条目 -> 关闭大全并打开该命令的详细说明
+    $('#task-library-body').addEventListener('click', (ev) => {
+      const item = ev.target.closest('.task-lib-item');
+      if (!item) return;
+      closeTaskLibrary();
+      showTaskHelp(item.dataset.task);
+    });
+    $('#task-help-close').addEventListener('click', closeTaskHelp);
+    $('#task-help-ok').addEventListener('click', closeTaskHelp);
+    $('#task-help-overlay').addEventListener('click', closeTaskHelp);
     document.addEventListener('keydown', (ev) => {
-      if (ev.key === 'Escape' && !$('#confirm-modal').classList.contains('hidden')) closeConfirm(false);
+      if (ev.key === 'Escape') {
+        if (!$('#confirm-modal').classList.contains('hidden')) closeConfirm(false);
+        else if (!$('#task-help-modal').classList.contains('hidden')) closeTaskHelp();
+        else if (!$('#task-library-modal').classList.contains('hidden')) closeTaskLibrary();
+      }
     });
     $('#menu-btn').addEventListener('click', () => toggleSidebar(true));
     $('#sidebar-overlay').addEventListener('click', () => toggleSidebar(false));

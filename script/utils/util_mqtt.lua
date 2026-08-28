@@ -5,12 +5,24 @@ local mqtt = require "mqtt"
 local log = require "log"
 local sys = require "sys"
 local misc = require "misc"
+local net = require "net"
+local sim = require "sim"
+local cc = require "cc"
+local ril = require "ril"
 local util_mobile = require "util_mobile"
+local util_audio = require "util_audio"
+local util_notify = require "util_notify"
 local util_temperature = require "util_temperature"
+local pins = require "pins"
 local config = require "config"
 local nvm = require "nvm"
 
 local mqttc = nil
+
+-- USSD 查询结果 URC：运营商回复后通过通知渠道推送
+ril.regUrc("+CUSD", function(data)
+    util_notify.add({ "USSD 查询结果", data or "", "#USSD" })
+end)
 
 -- 任务结果待发队列：handleTask 只入队，由主循环统一发布
 -- （避免任务协程与主循环并发访问同一 socket 导致报文损坏/脚本崩溃重启）
@@ -121,6 +133,112 @@ local function handleTask(imei, json_data)
                     else
                         error = "无法写入/nvm_para.lua文件"
                     end
+                end
+            elseif json_data.task == "get_status" then
+                -- 设备状态汇总（电压/温度/信号/运营商/本机号码/SIM卡槽）
+                result = {
+                    voltage = misc.getVbatt(),
+                    temperature = util_temperature.get(),
+                    rssi = net.getRssi(),
+                    rsrp = net.getRsrp(),
+                    operator = util_mobile.getOper(true),
+                    number = util_mobile.getNumber(),
+                    sim_id = sim.getId() == 0 and "主卡槽" or "副卡槽",
+                    net_state = net.getState()
+                }
+            elseif json_data.task == "dial_call" then
+                if not json_data.phone or json_data.phone == "" then
+                    error = "缺少必要参数: phone"
+                else
+                    sys.taskInit(cc.dial, json_data.phone)
+                    result = "拨打指令已执行: " .. json_data.phone
+                end
+            elseif json_data.task == "hang_up" then
+                if cc.anyCallExist() then
+                    cc.hangUp("REMOTE_HANGUP")
+                    result = "挂断指令已执行"
+                else
+                    result = "当前无通话"
+                end
+            elseif json_data.task == "tts_speak" then
+                if not json_data.text or json_data.text == "" then
+                    error = "缺少必要参数: text"
+                else
+                    util_audio.play(7, "TTS", json_data.text)
+                    result = "TTS 播报已执行"
+                end
+            elseif json_data.task == "set_volume" then
+                local vol = tonumber(json_data.vol)
+                if vol == nil or vol < 0 or vol > 10 then
+                    error = "参数 vol 必须为 0-10 的数字"
+                else
+                    nvm.set("AUDIO_VOLUME", vol)
+                    nvm.set("CALL_VOLUME", vol)
+                    result = "音量已设置为 " .. vol
+                end
+            elseif json_data.task == "query_traffic" then
+                -- 向运营商发送流量查询短信（回复短信会触发通知推送）
+                sys.taskInit(util_mobile.queryTraffic)
+                result = "流量查询短信已发送，运营商回复将推送通知"
+            elseif json_data.task == "set_ccfc" then
+                -- 设置无条件呼转, phone 为 "0" 时取消所有呼转
+                local phone = tostring(json_data.phone or "")
+                if phone == "" then
+                    error = "缺少必要参数: phone（设为 0 可取消呼转）"
+                else
+                    if phone == "0" then
+                        ril.request("AT+CCFC=4,4,0")
+                        result = "取消呼转指令已下发"
+                    else
+                        ril.request("AT+CCFC=0,3," .. phone)
+                        result = "呼转指令已下发: " .. phone
+                    end
+                end
+            elseif json_data.task == "switch_sim" then
+                -- 切换 SIM 卡槽并重启（重启后生效）
+                local new_id = sim.getId() == 0 and 1 or 0
+                result = "切换SIM: " .. (sim.getId() == 0 and "主卡槽 -> 副卡槽" or "副卡槽 -> 主卡槽") .. ", 10秒后重启生效"
+                sim.setId(new_id)
+                sys.timerStart(sys.restart, 10000, "REMOTE_SIMSWITCH")
+            elseif json_data.task == "reboot" then
+                result = "重启指令已接收, 10秒后重启"
+                sys.timerStart(sys.restart, 10000, "REMOTE_REBOOT")
+            elseif json_data.task == "get_device_info" then
+                -- 设备硬件信息（IMEI/SN/ICCID/固件版本/模块型号）
+                result = {
+                    imei = misc.getImei(),
+                    sn = misc.getSn(),
+                    iccid = sim.getIccid(),
+                    version = misc.getVersion(),
+                    model = misc.getModelType()
+                }
+            elseif json_data.task == "ussd_query" then
+                -- USSD 查询（话费/流量余额等，结果异步经通知渠道推送）
+                if not json_data.code or json_data.code == "" then
+                    error = "缺少必要参数: code（如 *108#，具体查运营商）"
+                else
+                    ril.request('AT+CUSD=1,"' .. json_data.code .. '",15')
+                    result = "USSD 查询已发送: " .. json_data.code .. "，运营商回复将通过通知推送"
+                end
+            elseif json_data.task == "send_dtmf" then
+                -- 通话中向对端发送 DTMF 按键（如输入分机号、语音信箱密码）
+                if not json_data.dtmf or json_data.dtmf == "" then
+                    error = "缺少必要参数: dtmf（仅支持数字和 ABCD*#）"
+                elseif not cc.anyCallExist() then
+                    error = "当前无通话，无法发送 DTMF"
+                else
+                    cc.sendDtmf(tostring(json_data.dtmf))
+                    result = "DTMF 已发送: " .. json_data.dtmf
+                end
+            elseif json_data.task == "set_gpio" then
+                -- GPIO 输出控制（可外接继电器实现远程开关）
+                local pin = tonumber(json_data.pin)
+                local level = tonumber(json_data.level)
+                if pin == nil or level == nil or (level ~= 0 and level ~= 1) then
+                    error = "参数 pin(GPIO编号,数字) 与 level(0或1) 必填"
+                else
+                    pins.setup(pin, level)
+                    result = "GPIO" .. pin .. " 已输出 " .. level
                 end
             else
                 error = "未知的任务类型: " .. (json_data.task or "nil")
