@@ -111,6 +111,29 @@ go build -o panel-server.exe .
 
 ### Docker 部署
 
+**方式一：使用已发布镜像（推荐）**
+
+镜像已发布到 Docker Hub：`vipiu/air724ug_panel`（linux/amd64 + linux/arm64）
+
+```bash
+# 拉取镜像
+docker pull vipiu/air724ug_panel:latest
+
+# 启动容器
+docker run -d --name air724ug-panel --restart unless-stopped \
+  -p 9527:9527 \
+  -p 1883:1883 \
+  -p 8083:8083 \
+  -v panel-data:/app/data \
+  vipiu/air724ug_panel:latest
+```
+
+- `-p 9527` HTTP 面板；`-p 1883` MQTT TCP；`-p 8083` MQTT WebSocket（nginx 反代 wss 用）
+- `-v panel-data:/app/data` SQLite 数据持久化到命名卷；容器内首次启动会自动生成默认配置（账号 `admin / admin123`，登录后请及时修改）
+- 公网仅暴露 443 给 nginx 反代时，无需映射 1883/8083
+
+**方式二：本地构建 + docker-compose**
+
 ```bash
 docker-compose up -d
 ```
