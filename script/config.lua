@@ -91,9 +91,9 @@ GOTIFY_CLIENT_TOKEN=""
 -- 通过 MQTT 对接自建服务端（Go 服务端内置 broker），替代原 WebSocket 方式以节省流量
 -- ==================== 推荐：单链接配置 MQTT_URL ====================
 -- 直接填写一条链接即可，支持以下格式（任选其一）：
---   MQTT_URL = "wss://panel.example.com/websocket"  -- 加密 WebSocket（推荐，nginx 反代 443）
---   MQTT_URL = "ws://192.168.1.100:8083/websocket"  -- 明文 WebSocket
---   MQTT_URL = "mqtt://panel.example.com:1883"      -- MQTT 明文
+--   MQTT_URL = "wss://panel.example.com/websocket"  -- 加密 WebSocket（推荐，nginx 反代 443 到面板端口）
+--   MQTT_URL = "ws://192.168.1.100:9527/websocket"  -- 明文 WebSocket（直接连面板端口）
+--   MQTT_URL = "mqtt://panel.example.com:1883"      -- MQTT 明文（需服务端 config.json 中 mqtt.port > 0）
 --   MQTT_URL = "mqtts://panel.example.com:8883"     -- MQTT over TLS
 MQTT_URL = ""
 -- ==================== 旧参数（MQTT_URL 留空时才生效） ====================

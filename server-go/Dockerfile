@@ -31,8 +31,8 @@ COPY --from=builder /build/panel-server /app/panel-server
 # SQLite 数据库持久化目录（通过卷挂载）
 VOLUME ["/app/data"]
 
-# HTTP 面板 / MQTT broker
-EXPOSE 9527 1883
+# 单端口：HTTP 面板 + MQTT over WebSocket（/websocket）共用 9527
+EXPOSE 9527
 
 ENTRYPOINT ["/app/panel-server"]
 CMD ["-config", "/app/config.json", "-db", "/app/data/panel.db"]

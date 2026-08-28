@@ -146,9 +146,9 @@ end
 
 -- 按配置建立 MQTT 连接（优先 MQTT_URL 单链接，兼容旧的 MQTT_HOST/MQTT_PORT）
 -- MQTT_URL 支持格式：
---   wss://host/websocket      -- 加密 WebSocket（推荐，nginx 反代 443）
---   ws://host:8083/websocket  -- 明文 WebSocket
---   mqtt://host:1883          -- MQTT 明文
+--   wss://host/websocket      -- 加密 WebSocket（推荐，nginx 反代 443 → 面板端口）
+--   ws://host:9527/websocket  -- 明文 WebSocket（直接连面板端口）
+--   mqtt://host:1883          -- MQTT 明文（需服务端 config.json 中 mqtt.port > 0）
 --   mqtts://host:8883         -- MQTT over TLS
 local function mqttConnect(mqttc, timeout)
     local url = config.MQTT_URL

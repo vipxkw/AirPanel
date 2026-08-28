@@ -13,3 +13,5 @@ server-go/air724-sign.pfx
 
 # 本地测试残留
 script/lib/out.json
+server-go/run.log
+server-go/run.err.log

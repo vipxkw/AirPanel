@@ -30,10 +30,11 @@ type UserConf struct {
 }
 
 // MQTTConf 内嵌 MQTT broker 监听配置
+// MQTT 走 WebSocket 与 HTTP 面板共享同一端口（路径 /websocket），公网只需开放面板端口；
+// TCP 监听（port）仅用于内网直连场景，0 表示不启用（默认只走 WebSocket/WSS）。
 type MQTTConf struct {
-	Host   string `json:"host"`
-	Port   int    `json:"port"`
-	WSPort int    `json:"wsPort"` // WebSocket 监听端口（设备经 nginx 反代 wss 接入），0 表示不启用
+	Host string `json:"host"`
+	Port int    `json:"port"` // MQTT TCP 监听端口，0 表示不启用
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -54,15 +55,10 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.Port == 0 {
 		cfg.Port = 9527
 	}
-	if cfg.MQTT.Port == 0 {
-		cfg.MQTT.Port = 1883
-	}
 	if cfg.MQTT.Host == "" {
 		cfg.MQTT.Host = "0.0.0.0"
 	}
-	if cfg.MQTT.WSPort == 0 {
-		cfg.MQTT.WSPort = 8083
-	}
+	// 注：MQTT 走 WebSocket 共享 HTTP 端口（/websocket），无需独立 MQTT 端口
 	if cfg.DBPath == "" {
 		cfg.DBPath = "panel.db"
 	}
@@ -84,7 +80,7 @@ func newDefaultConfig(path string) (*Config, error) {
 		User:         UserConf{Username: "admin", Password: string(hash)},
 		TokenVersion: 1,
 		Port:         9527,
-		MQTT:         MQTTConf{Host: "0.0.0.0", Port: 1883, WSPort: 8083},
+		MQTT:         MQTTConf{Host: "0.0.0.0", Port: 0},
 		DBPath:       "panel.db",
 		configFile:   path,
 	}

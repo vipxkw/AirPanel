@@ -37,17 +37,24 @@
 
 ```
 ┌────────────┐   wss://host/websocket  ┌──────────────────────────────┐
-│ Air724UG   │ ◄──────(443 加密)──────►│          panel-server         │
-│ 设备端Lua  │    MQTT over WebSocket   │  ┌────────┐  ┌──────────────┐ │
-│ 固件 script│    cmd/{imei} 等主题      │  │ MQTT   │  │ HTTP 面板    │ │
-└────────────┘                          │  │ Broker │  │ (REST + 前端)│ │
-                                        │  │1883/8083│ └──────────────┘ │
-                                        │  └────────┘                   │
-                                        │       │   SQLite (panel.db)   │
-                                        └───────┴───────────────────────┘
+│ Air724UG   │ ◄──────(443 加密)──────►│        nginx (仅443)         │
+│ 设备端Lua  │    MQTT over WebSocket   │  /websocket ──┐              │
+│ 固件 script│    cmd/{imei} 等主题      │  /  ──────────┼────────────┐ │
+└────────────┘                          │              ▼            │ │
+                                        │  ┌──────────────────────┐ │ │
+                                        │  │   panel-server :9527 │ │ │
+                                        │  │ ┌───────┐ ┌────────┐ │ │ │
+                                        │  │ │ MQTT  │ │ HTTP   │ │ │ │
+                                        │  │ │ Broker│ │ 面板    │ │ │ │
+                                        │  │ │ (WS)  │ │ REST+前端│ │ │
+                                        │  │ └───────┘ └────────┘ │ │ │
+                                        │  │        │ SQLite      │ │ │
+                                        │  └────────┴─────────────┘ │ │
+                                        └──────────────────────────┘ ┘
 ```
 
-- 设备经 **wss（443）** 或内网 **ws://host:8083** 接入，MQTT 数据封装在 WebSocket 帧中传输，加密且省流量；内网也可直连 MQTT TCP 1883
+- 公网仅开放 **一个端口**：nginx 443 终结 TLS，`/websocket` 与 `/` 都反代到 `panel-server` 的 **9527** 端口——MQTT over WSS 与 Web 面板共用同一端口，无需再暴露 1883/8083
+- 设备经 **wss（443）** 接入，MQTT 数据封装在 WebSocket 帧中传输，加密且省流量；内网也可用 `ws://host:9527/websocket` 直连，或可选启用 MQTT TCP 内网直连
 - 设备订阅 `cmd/{imei}` 接收指令，上报 `device/{imei}/online`（上线）与 `device/{imei}/result`（任务结果）
 - 面板通过 REST API 下发任务，服务端转 MQTT 推送给设备并等待回报（30 秒超时）
 
@@ -94,8 +101,7 @@ go build -o panel-server.exe .
 
 默认配置：
 
-- HTTP 面板：`http://127.0.0.1:9527`
-- MQTT Broker：`0.0.0.0:1883`
+- HTTP 面板 + MQTT over WebSocket（`/websocket`）：`http://127.0.0.1:9527`（单端口）
 - 默认账号：`admin / admin123`（可在面板「设置」中修改用户名/密码，或编辑 `config.json`）
 
 ### 前端构建（改动 web/ 后需重新构建）
@@ -119,18 +125,16 @@ go build -o panel-server.exe .
 # 拉取镜像
 docker pull vipiu/air724ug_panel:latest
 
-# 启动容器
+# 启动容器（单端口：面板 + MQTT over WebSocket 共用 9527）
 docker run -d --name air724ug-panel --restart unless-stopped \
   -p 9527:9527 \
-  -p 1883:1883 \
-  -p 8083:8083 \
   -v panel-data:/app/data \
   vipiu/air724ug_panel:latest
 ```
 
-- `-p 9527` HTTP 面板；`-p 1883` MQTT TCP；`-p 8083` MQTT WebSocket（nginx 反代 wss 用）
+- `-p 9527` HTTP 面板 + MQTT over WebSocket（`/websocket`）共用，**只需这一个端口**
 - `-v panel-data:/app/data` SQLite 数据持久化到命名卷；容器内首次启动会自动生成默认配置（账号 `admin / admin123`，登录后请及时修改）
-- 公网仅暴露 443 给 nginx 反代时，无需映射 1883/8083
+- 公网仅暴露 443 给 nginx 反代时，把 `/websocket` 与 `/` 都反代到 `127.0.0.1:9527` 即可
 
 **方式二：本地构建 + docker-compose**
 
@@ -138,11 +142,11 @@ docker run -d --name air724ug-panel --restart unless-stopped \
 docker-compose up -d
 ```
 
-`docker-compose.yml` 暴露 `9527`（HTTP）、`1883`（MQTT TCP）与 `8083`（MQTT WebSocket），SQLite 数据通过卷 `panel-data` 持久化到容器 `/app/data/panel.db`。
+`docker-compose.yml` 仅发布 `9527`（HTTP 面板 + MQTT over WebSocket 共用），SQLite 数据通过卷 `panel-data` 持久化到容器 `/app/data/panel.db`。
 
 ### WSS 加密接入（推荐，公网部署）
 
-MQTT WebSocket 监听在 `8083` 端口（明文 ws）。公网部署建议用 nginx 做 TLS 终结并反代，设备以 `wss://你的域名/websocket` 一条链接接入，全程加密：
+MQTT over WebSocket 与 Web 面板共享 `9527` 端口（路径 `/websocket`）。公网部署用 nginx 做 TLS 终结并反代，设备以 `wss://你的域名/websocket` 一条链接接入，全程加密：
 
 ```nginx
 server {
@@ -152,9 +156,9 @@ server {
     ssl_certificate     /etc/nginx/ssl/fullchain.pem;   # 你的证书
     ssl_certificate_key /etc/nginx/ssl/privkey.pem;
 
-    # 设备 MQTT over WSS：/websocket -> 127.0.0.1:8083
+    # 设备 MQTT over WSS：/websocket -> 127.0.0.1:9527
     location /websocket {
-        proxy_pass http://127.0.0.1:8083;
+        proxy_pass http://127.0.0.1:9527;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -168,7 +172,7 @@ server {
 }
 ```
 
-> 若 80/443 与 Go 服务端不在同一台机器，把 `proxy_pass` 指向服务端 IP 即可；仅需开放 443，**无需**暴露 1883/8083 到公网。
+> 若 80/443 与 Go 服务端不在同一台机器，把 `proxy_pass` 指向服务端 IP 即可；仅需开放 443，**无需**再暴露任何其它端口。
 
 ## 设备端固件对接
 
@@ -176,11 +180,11 @@ server {
 2. 在 `script/config.lua` 中配置服务端地址，**推荐单链接 `MQTT_URL`**（一条链接搞定）：
 
 ```lua
--- 公网（推荐）：wss 加密，nginx 反代 443
+-- 公网（推荐）：wss 加密，nginx 反代 443 → 面板端口 /websocket
 MQTT_URL = "wss://panel.example.com/websocket"
--- 内网明文 WebSocket：
--- MQTT_URL = "ws://192.168.1.100:8083/websocket"
--- 内网 MQTT 明文：
+-- 内网明文 WebSocket（直接连面板端口）：
+-- MQTT_URL = "ws://192.168.1.100:9527/websocket"
+-- 内网 MQTT TCP（需服务端 config.json 中 mqtt.port > 0 启用）：
 -- MQTT_URL = "mqtt://192.168.1.100:1883"
 
 MQTT_KEEPALIVE = 300   -- 心跳间隔（秒），仅在此间隔发 2 字节心跳包，可降低流量

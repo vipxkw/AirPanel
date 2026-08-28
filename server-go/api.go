@@ -47,6 +47,9 @@ func (api *API) routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
 
+	// MQTT over WebSocket：与面板共享同一端口（nginx 把 /websocket 反代到本端口）
+	mux.Handle("/websocket", api.app.MQTTWebSocketHandler())
+
 	// 静态资源 + SPA 回退
 	mux.HandleFunc("/", api.handleStatic)
 

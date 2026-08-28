@@ -90,9 +90,8 @@
 -- ------------------------------ MQTT 对接配置 ------------------------------
 -- 自建 Go 服务端（内置 MQTT broker）的连接参数，可在这里远程修改
 -- 推荐单链接方式（二选一）：
--- MQTT_URL = "wss://panel.example.com/websocket"  -- 加密 WebSocket（nginx 反代 443）
--- MQTT_URL = "ws://192.168.1.100:8083/websocket"  -- 明文 WebSocket
--- MQTT_URL = "mqtt://panel.example.com:1883"      -- MQTT 明文
+-- MQTT_URL = "wss://panel.example.com/websocket"  -- 加密 WebSocket（推荐，nginx 反代 443 到面板端口）
+-- MQTT_URL = "ws://192.168.1.100:9527/websocket"  -- 明文 WebSocket（直接连面板端口）
 -- 旧参数（MQTT_URL 留空时才生效）：
 -- MQTT_HOST = "192.168.1.100"   -- 服务端地址（IP 或域名）
 -- MQTT_PORT = 1883              -- 端口，默认 1883

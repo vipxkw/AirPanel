@@ -8,12 +8,8 @@ services:
       dockerfile: Dockerfile
     image: air724ug-panel:latest
     ports:
-      # HTTP 管理面板
+      # 单端口：HTTP 管理面板 + MQTT over WebSocket(/websocket) 共用 9527
       - "9527:9527"
-      # MQTT broker（设备接入）
-      - "1883:1883"
-      # MQTT WebSocket（nginx 反代 wss 使用）
-      - "8083:8083"
     volumes:
       # SQLite 数据持久化
       - panel-data:/app/data

@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	mqtt "github.com/mochi-mqtt/server/v2"
 	"github.com/mochi-mqtt/server/v2/hooks/auth"
 	"github.com/mochi-mqtt/server/v2/listeners"
@@ -101,18 +104,14 @@ func NewApp(cfg *Config, db *DB) (*App, error) {
 		return nil, fmt.Errorf("添加业务 hook 失败: %w", err)
 	}
 
-	addr := fmt.Sprintf("%s:%d", cfg.MQTT.Host, cfg.MQTT.Port)
-	tcp := listeners.NewTCP("t1", addr, nil)
-	if err := broker.AddListener(tcp); err != nil {
-		return nil, fmt.Errorf("启动 MQTT 监听 %s 失败: %w", addr, err)
-	}
-
-	// WebSocket 监听：设备经 nginx 反代 wss 接入（对外仅暴露 443，nginx 将 /websocket 反代到该端口）
-	if cfg.MQTT.WSPort > 0 {
-		wsAddr := fmt.Sprintf("%s:%d", cfg.MQTT.Host, cfg.MQTT.WSPort)
-		ws := listeners.NewWebsocket("ws", wsAddr, nil)
-		if err := broker.AddListener(ws); err != nil {
-			return nil, fmt.Errorf("启动 MQTT WebSocket 监听 %s 失败: %w", wsAddr, err)
+	// MQTT TCP 监听（可选，内网直连场景）：port=0 时禁用。
+	// 默认只走 WebSocket —— MQTT over WSS 与 HTTP 面板共享同一端口（路径 /websocket），
+	// 公网仅需开放面板端口，nginx 把 /websocket 反代到面板端口即可。
+	if cfg.MQTT.Port > 0 {
+		addr := fmt.Sprintf("%s:%d", cfg.MQTT.Host, cfg.MQTT.Port)
+		tcp := listeners.NewTCP("t1", addr, nil)
+		if err := broker.AddListener(tcp); err != nil {
+			return nil, fmt.Errorf("启动 MQTT 监听 %s 失败: %w", addr, err)
 		}
 	}
 
@@ -335,4 +334,70 @@ func (a *App) recordTask(taskID, imei, task, params, result, errMsg, status stri
 	if err := a.db.recordTask(rec); err != nil {
 		log.Printf("记录任务失败: %v", err)
 	}
+}
+
+// MQTTWebSocketHandler 返回共享 HTTP 端口的 MQTT over WebSocket handler（路径 /websocket）。
+// 设备以 wss://host/websocket 接入：公网 nginx 只需把 /websocket 反代到面板端口（默认 9527）。
+func (a *App) MQTTWebSocketHandler() http.Handler {
+	upgrader := websocket.Upgrader{
+		Subprotocols: []string{"mqtt"},
+		CheckOrigin:  func(r *http.Request) bool { return true },
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			log.Printf("MQTT WebSocket 升级失败: %v", err)
+			return
+		}
+		if err := a.broker.EstablishConnection("ws", &mqttWSConn{Conn: c}); err != nil {
+			log.Printf("MQTT WebSocket 连接建立失败: %v", err)
+			_ = c.Close()
+		}
+	})
+}
+
+// mqttWSConn 将 WebSocket 二进制帧桥接为 net.Conn，供 mochi-mqtt 建立客户端连接。
+type mqttWSConn struct {
+	*websocket.Conn
+	mu sync.Mutex
+	r  io.Reader
+}
+
+func (c *mqttWSConn) Read(p []byte) (int, error) {
+	if c.r == nil {
+		op, r, err := c.NextReader()
+		if err != nil {
+			return 0, err
+		}
+		if op != websocket.BinaryMessage {
+			return 0, errors.New("mqtt websocket: 非二进制消息")
+		}
+		c.r = r
+	}
+	n, err := c.r.Read(p)
+	if err == io.EOF {
+		c.r = nil
+		err = nil
+	}
+	return n, err
+}
+
+func (c *mqttWSConn) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := c.WriteMessage(websocket.BinaryMessage, p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (c *mqttWSConn) Close() error {
+	return c.Conn.Close()
+}
+
+func (c *mqttWSConn) SetDeadline(t time.Time) error {
+	if err := c.Conn.SetReadDeadline(t); err != nil {
+		return err
+	}
+	return c.Conn.SetWriteDeadline(t)
 }

@@ -43,10 +43,12 @@ func main() {
 
 	log.Printf("======================================================")
 	log.Printf(" Air724UG Web Panel (Go)")
-	log.Printf(" HTTP 服务  : http://0.0.0.0:%d", cfg.Port)
-	log.Printf(" MQTT broker: mqtt://%s:%d", cfg.MQTT.Host, cfg.MQTT.Port)
-	if cfg.MQTT.WSPort > 0 {
-		log.Printf(" MQTT ws    : ws://%s:%d (nginx 反代 wss 至该端口)", cfg.MQTT.Host, cfg.MQTT.WSPort)
+	log.Printf(" HTTP 面板   : http://0.0.0.0:%d", cfg.Port)
+	log.Printf(" MQTT over WSS: /websocket（与面板共享端口 %d，nginx 反代 wss://域名/websocket 至该端口）", cfg.Port)
+	if cfg.MQTT.Port > 0 {
+		log.Printf(" MQTT TCP(可选): mqtt://%s:%d（仅内网直连）", cfg.MQTT.Host, cfg.MQTT.Port)
+	} else {
+		log.Printf(" MQTT TCP   : 未启用（公网仅走 WebSocket/WSS）")
 	}
 	log.Printf(" 数据库     : %s", cfg.DBPath)
 	log.Printf("======================================================")

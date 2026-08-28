@@ -4,8 +4,11 @@ import time
 import paho.mqtt.client as mqtt
 
 IMEI = "WSIMETEST01"
-BROKER = "127.0.0.1"
-WS_PORT = 8083  # Go 服务端 ws 监听端口
+# 公网 wss：https://sms.chinasclm.com/websocket -> host + 443 + TLS
+# 内网明文 ws：BROKER = "127.0.0.1", WS_PORT = 8083, 并去掉 tls_set()
+BROKER = "sms.chinasclm.com"
+WS_PORT = 443
+USE_TLS = True  # True=wss(443), False=ws(8083)
 
 
 def on_connect(client, userdata, flags, rc):
@@ -30,8 +33,15 @@ def on_message(client, userdata, msg):
         client.publish(f"device/{IMEI}/result", json.dumps(resp), qos=1)
 
 
-client = mqtt.Client(client_id=IMEI, protocol=mqtt.MQTTv311, transport="websockets")
+client = mqtt.Client(
+    callback_api_version=mqtt.CallbackAPIVersion.VERSION1,
+    client_id=IMEI,
+    protocol=mqtt.MQTTv311,
+    transport="websockets",
+)
 client.ws_set_options(path="/websocket")
+if USE_TLS:
+    client.tls_set()  # wss：校验服务器证书
 client.on_connect = on_connect
 client.on_message = on_message
 client.connect(BROKER, WS_PORT, 30)
