@@ -8,5 +8,8 @@ server-go/task.json
 server-go/config.json
 server-go/tools/
 
+# 本地代码签名私钥（切勿入库）
+server-go/air724-sign.pfx
+
 # 本地测试残留
 script/lib/out.json
