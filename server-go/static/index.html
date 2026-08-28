@@ -166,15 +166,7 @@
                   </h3>
                   <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="task-type-grid">
                     <label class="task-card">
-                      <input type="radio" name="task-type" value="get_temperature" checked class="task-radio">
-                      <span class="task-card-inner">
-                        <span class="text-2xl">🌡️</span>
-                        <span class="task-card-title">查询温度</span>
-                        <small>读取设备温度</small>
-                      </span>
-                    </label>
-                    <label class="task-card">
-                      <input type="radio" name="task-type" value="send_sms" class="task-radio">
+                      <input type="radio" name="task-type" value="send_sms" checked class="task-radio">
                       <span class="task-card-inner">
                         <span class="text-2xl">📱</span>
                         <span class="task-card-title">发送短信</span>
@@ -197,6 +189,14 @@
                         <small>覆盖 nvm_para.lua</small>
                       </span>
                     </label>
+                    <label class="task-card">
+                      <input type="radio" name="task-type" value="__custom__" class="task-radio">
+                      <span class="task-card-inner">
+                        <span class="text-2xl">⌨️</span>
+                        <span class="task-card-title">自定义命令</span>
+                        <small>输入任意命令与参数</small>
+                      </span>
+                    </label>
                   </div>
 
                   <!-- 发送短信参数 -->
@@ -208,6 +208,19 @@
                     <div>
                       <label class="label" for="task-content">短信内容</label>
                       <textarea id="task-content" rows="2" class="input" placeholder="短信内容"></textarea>
+                    </div>
+                  </div>
+
+                  <!-- 自定义命令参数 -->
+                  <div id="params-__custom__" class="hidden mt-5 space-y-4 border-t border-slate-100 pt-5">
+                    <div>
+                      <label class="label" for="task-custom-cmd">命令名称</label>
+                      <input id="task-custom-cmd" type="text" class="input font-mono text-xs" placeholder="如 ussd_query、get_status、set_gpio">
+                      <p class="text-xs text-slate-400 mt-1.5">全部可用命令见右侧 <a href="javascript:void(0)" id="task-custom-help" class="text-blue-600 underline decoration-blue-300">任务说明 · 更多命令</a></p>
+                    </div>
+                    <div>
+                      <label class="label" for="task-custom-params">命令参数 <span class="text-slate-400 font-normal">（可选 JSON，如 {"phone":"13800138000"}）</span></label>
+                      <textarea id="task-custom-params" rows="3" class="input font-mono text-xs" placeholder='{"pin": 15, "level": 1}'></textarea>
                     </div>
                   </div>
 
@@ -367,7 +380,7 @@
   <!-- 命令大全弹窗 -->
   <div id="task-library-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
     <div id="task-library-overlay" class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
-    <div class="relative w-full max-w-md card p-6 shadow-2xl max-h-[85vh] flex flex-col">
+    <div class="relative w-full max-w-md card p-6 shadow-2xl flex flex-col">
       <div class="flex items-start justify-between gap-3 shrink-0">
         <div>
           <h3 class="text-base font-semibold text-slate-900">命令大全</h3>
@@ -385,10 +398,10 @@
   </div>
 
   <!-- 命令说明弹窗 -->
-  <div id="task-help-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center p-4">
+  <div id="task-help-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
     <div id="task-help-overlay" class="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"></div>
-    <div class="relative w-full max-w-md card p-6 shadow-2xl max-h-[85vh] flex flex-col">
-      <div class="flex items-start justify-between gap-3">
+    <div class="relative w-full max-w-md card p-6 shadow-2xl flex flex-col" style="max-height: 75vh">
+      <div class="flex items-start justify-between gap-3 shrink-0">
         <div>
           <h3 id="task-help-title" class="text-base font-semibold text-slate-900"></h3>
           <p id="task-help-cmd" class="mt-0.5 font-mono text-xs text-blue-600 bg-blue-50 rounded px-2 py-0.5 inline-block"></p>

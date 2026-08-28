@@ -367,26 +367,35 @@
     { name: '配置与系统', icon: '⚙️', tasks: ['set_config', 'set_volume', 'set_gpio', 'switch_sim', 'reboot'] },
   ];
 
+  // 命令大全：手风琴模式，始终只展开一个分组
+  let libOpenGroup = 0;
+
   function renderTaskLibrary() {
     const body = $('#task-library-body');
-    body.innerHTML = TASK_GROUPS.map((g) => `
+    body.innerHTML = TASK_GROUPS.map((g, gi) => {
+      const open = gi === libOpenGroup;
+      return `
       <div>
-        <p class="text-xs font-semibold text-slate-800 mb-2">${g.icon} ${g.name}</p>
-        <ul class="rounded-xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
+        <button type="button" class="task-lib-group w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-slate-50 hover:bg-slate-100 transition-colors" data-group="${gi}">
+          <span class="flex items-center gap-2 text-sm font-semibold text-slate-800">${g.icon} ${g.name}</span>
+          <svg class="w-4 h-4 text-slate-400 shrink-0" style="transform: ${open ? 'rotate(90deg)' : 'none'}; transition: transform .2s" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+        </button>
+        ${open ? `<ul class="mt-2 rounded-xl border border-slate-100 divide-y divide-slate-100 overflow-hidden">
           ${g.tasks.map((t) => {
             const h = TASK_HELP[t];
             return h ? `<li>
               <a href="javascript:void(0)" class="task-lib-item flex items-center justify-between gap-3 px-4 py-3 hover:bg-blue-50/60 transition-colors" data-task="${t}">
                 <span class="flex items-center gap-2.5 min-w-0">
                   <span class="font-medium text-sm text-slate-800">${h.title}</span>
-                  <code class="font-mono text-[10px] text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 shrink-0">${t}</code>
+                  <code class="font-mono text-xs text-blue-600 bg-blue-50 rounded px-1.5 py-0.5 shrink-0">${t}</code>
                 </span>
                 <svg class="w-4 h-4 text-slate-300 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
               </a>
             </li>` : '';
           }).join('')}
-        </ul>
-      </div>`).join('');
+        </ul>` : ''}
+      </div>`;
+    }).join('');
   }
 
   function showTaskLibrary() {
@@ -421,7 +430,7 @@
     const checked = document.querySelector('input[name="task-type"]:checked');
     if (!checked) return;
     const type = checked.value;
-    ['params-send_sms', 'params-set_config'].forEach((id) => {
+    ['params-send_sms', 'params-set_config', 'params-__custom__'].forEach((id) => {
       const el = $('#' + id);
       if (el) el.classList.toggle('hidden', id !== 'params-' + type);
     });
@@ -445,10 +454,22 @@
     const imei = $('#task-imei').value;
     if (!imei) { toast('请选择目标设备', false); return; }
     const checked = document.querySelector('input[name="task-type"]:checked');
-    const type = checked ? checked.value : '';
+    let type = checked ? checked.value : '';
     const payload = { imei, task: type };
 
-    if (type === 'send_sms') {
+    if (type === '__custom__') {
+      const cmd = $('#task-custom-cmd').value.trim();
+      if (!cmd) { toast('请输入命令名称', false); return; }
+      const params = $('#task-custom-params').value.trim();
+      let extraObj = {};
+      if (params) {
+        try { extraObj = JSON.parse(params); }
+        catch (_) { toast('命令参数不是合法 JSON', false); return; }
+      }
+      type = cmd;
+      payload.task = cmd;
+      Object.assign(payload, extraObj);
+    } else if (type === 'send_sms') {
       const phone = $('#task-rcv-phone').value.trim();
       const content = $('#task-content').value.trim();
       if (!phone || !content) { toast('请填写手机号和短信内容', false); return; }
@@ -606,11 +627,19 @@
 
     // 命令大全弹窗
     $('#task-library-link').addEventListener('click', showTaskLibrary);
+    $('#task-custom-help').addEventListener('click', showTaskLibrary);
     $('#task-library-close').addEventListener('click', closeTaskLibrary);
     $('#task-library-ok').addEventListener('click', closeTaskLibrary);
     $('#task-library-overlay').addEventListener('click', closeTaskLibrary);
-    // 命令大全内点击条目 -> 关闭大全并打开该命令的详细说明
+    // 命令大全内点击分组标题 -> 切换手风琴展开（关闭其他组）
     $('#task-library-body').addEventListener('click', (ev) => {
+      const group = ev.target.closest('.task-lib-group');
+      if (group) {
+        const gi = parseInt(group.dataset.group, 10);
+        libOpenGroup = (libOpenGroup === gi) ? -1 : gi; // 再点一次收起
+        renderTaskLibrary();
+        return;
+      }
       const item = ev.target.closest('.task-lib-item');
       if (!item) return;
       closeTaskLibrary();
