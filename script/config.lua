@@ -101,8 +101,9 @@ MQTT_URL = ""
 MQTT_HOST = ""
 -- MQTT 端口，默认 1883
 MQTT_PORT = 1883
--- 心跳间隔（秒），默认 300 秒，仅在此间隔发送一次 2 字节的心跳包，可大幅节省流量
-MQTT_KEEPALIVE = 300
+-- 心跳间隔（秒），默认 30 秒。经 nginx 反代时需小于其 proxy_read_timeout（默认 60s），
+-- 否则空闲连接会被反代掐断导致任务下发超时；每次心跳仅 2 字节，流量开销极小
+MQTT_KEEPALIVE = 30
 -- 客户端 ID，留空自动使用 IMEI
 MQTT_CLIENT_ID = ""
 -- 服务端若启用了 MQTT 认证则填写，否则留空

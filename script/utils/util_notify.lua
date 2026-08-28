@@ -19,6 +19,24 @@ local function urlencodeTab(params)
     return table.concat(msg)
 end
 
+--- 按 UTF-8 字符数安全截取字符串前 n 个字符（避免中文被从中间截断出现乱码）
+-- @param s (string) 原字符串
+-- @param n (number) 截取的字符数
+-- @return (string) 截取后的字符串
+local function utf8sub(s, n)
+    local t = {}
+    local i, cnt = 1, 0
+    while i <= #s and cnt < n do
+        local c = string.byte(s, i)
+        local l = c < 0x80 and 1 or (c < 0xE0 and 2 or (c < 0xF0 and 3 or 4))
+        if i + l - 1 > #s then break end
+        t[#t + 1] = s:sub(i, i + l - 1)
+        i = i + l
+        cnt = cnt + 1
+    end
+    return table.concat(t)
+end
+
 local notify = {
     -- 发送到 custom_post
     ["custom_post"] = function(msg)
@@ -313,8 +331,8 @@ local notify = {
         end
 
         local url = config.MESSAGE_PUSHER_API .. "/push/" .. config.MESSAGE_PUSHER_USERNAME
-        -- description 为必填字段
-        local body = { description = msg }
+        -- content 为消息内容, description 为描述(取消息前 50 个字符)
+        local body = { content = msg, description = utf8sub(msg, 50) }
         -- 以下均为选填
         if config.MESSAGE_PUSHER_TITLE and config.MESSAGE_PUSHER_TITLE ~= "" then
             body.title = config.MESSAGE_PUSHER_TITLE

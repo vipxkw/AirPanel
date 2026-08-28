@@ -258,8 +258,8 @@ function ws:recvFrame()
     if length > 0 then
         -- TODO 支持大于64的包
         -- log.info("teste", #s, length)
-        if length > 126 then
-            -- r, s = self.io:recv()
+        if length >= 126 then
+            -- 长度字段为 126/127 时使用扩展长度(2/8字节), 载荷从包头后开始
             if #s < length + 4 then
                 self.input = s
                 return true, false, ""

@@ -199,26 +199,28 @@ local function startMQTT()
                 -- 订阅服务端指令主题
                 local sub_ok = mqttc:subscribe("cmd/" .. imei, 1)
                 if not sub_ok then
-                    log.error("mqtt", "订阅失败，稍后重连")
-                end
-                -- 上报在线（retained，服务端重启后仍可感知设备）
-                local payload = json.encode({ type = "online", imei = imei, phone = util_mobile.getNumber() })
-                mqttc:publish("device/" .. imei .. "/online", payload, 1, 1)
+                    -- 订阅失败则无法接收服务端指令，断开走重连流程，避免"假在线"
+                    log.error("mqtt", "订阅失败，断开连接等待重连")
+                else
+                    -- 上报在线（retained，服务端重启后仍可感知设备）
+                    local payload = json.encode({ type = "online", imei = imei, phone = util_mobile.getNumber() })
+                    mqttc:publish("device/" .. imei .. "/online", payload, 1, 1)
 
-                -- 接收循环（receive 内部会自动发送心跳包）
-                while true do
-                    local r, data = mqttc:receive(300000)
-                    if r then
-                        log.info("mqtt", "收到消息 topic=", data.topic)
-                        local djson, json_data = pcall(json.decode, data.payload)
-                        if djson and json_data then
-                            handleTask(imei, json_data)
+                    -- 接收循环（receive 内部会自动发送心跳包）
+                    while true do
+                        local r, data = mqttc:receive(300000)
+                        if r then
+                            log.info("mqtt", "收到消息 topic=", data.topic)
+                            local djson, json_data = pcall(json.decode, data.payload)
+                            if djson and json_data then
+                                handleTask(imei, json_data)
+                            end
+                        elseif data == "timeout" then
+                            -- 正常等待超时，继续
+                        else
+                            log.error("mqtt", "接收异常，准备重连:", data)
+                            break
                         end
-                    elseif data == "timeout" then
-                        -- 正常等待超时，继续
-                    else
-                        log.error("mqtt", "接收异常，准备重连:", data)
-                        break
                     end
                 end
                 -- 断开本次连接，等待重连
