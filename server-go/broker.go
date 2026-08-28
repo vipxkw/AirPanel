@@ -107,6 +107,15 @@ func NewApp(cfg *Config, db *DB) (*App, error) {
 		return nil, fmt.Errorf("启动 MQTT 监听 %s 失败: %w", addr, err)
 	}
 
+	// WebSocket 监听：设备经 nginx 反代 wss 接入（对外仅暴露 443，nginx 将 /websocket 反代到该端口）
+	if cfg.MQTT.WSPort > 0 {
+		wsAddr := fmt.Sprintf("%s:%d", cfg.MQTT.Host, cfg.MQTT.WSPort)
+		ws := listeners.NewWebsocket("ws", wsAddr, nil)
+		if err := broker.AddListener(ws); err != nil {
+			return nil, fmt.Errorf("启动 MQTT WebSocket 监听 %s 失败: %w", wsAddr, err)
+		}
+	}
+
 	app.broker = broker
 	return app, nil
 }

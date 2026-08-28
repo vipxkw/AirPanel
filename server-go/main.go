@@ -45,6 +45,9 @@ func main() {
 	log.Printf(" Air724UG Web Panel (Go)")
 	log.Printf(" HTTP 服务  : http://0.0.0.0:%d", cfg.Port)
 	log.Printf(" MQTT broker: mqtt://%s:%d", cfg.MQTT.Host, cfg.MQTT.Port)
+	if cfg.MQTT.WSPort > 0 {
+		log.Printf(" MQTT ws    : ws://%s:%d (nginx 反代 wss 至该端口)", cfg.MQTT.Host, cfg.MQTT.WSPort)
+	}
 	log.Printf(" 数据库     : %s", cfg.DBPath)
 	log.Printf("======================================================")
 

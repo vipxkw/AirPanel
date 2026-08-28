@@ -277,7 +277,7 @@ sys.taskInit(function()
     -- 等待获取 Band 值
     -- sys.wait(1000 * 5)
 	
-    if config.MQTT_HOST and config.MQTT_HOST ~= "" then
+    if (config.MQTT_HOST and config.MQTT_HOST ~= "") or (config.MQTT_URL and config.MQTT_URL ~= "") then
         log.info("main", "MQTT 服务端已配置，开始启动 MQTT 连接。")
         util_mqtt.start()
     end

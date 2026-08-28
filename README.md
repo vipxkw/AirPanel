@@ -36,16 +36,18 @@
 ## 系统架构
 
 ```
-┌────────────┐   MQTT (1883)   ┌──────────────────────────────┐
-│ Air724UG   │ ◄─────────────► │          panel-server         │
-│ 设备端Lua  │  cmd/{imei}     │  ┌────────┐  ┌──────────────┐ │
-│ 固件 script│  device/{imei}  │  │ MQTT   │  │ HTTP 面板    │ │
-└────────────┘                 │  │ Broker │  │ (REST + 前端)│ │
-                               │  └────────┘  └──────────────┘ │
-                               │       │   SQLite (panel.db)   │
-                               └───────┴───────────────────────┘
+┌────────────┐   wss://host/websocket  ┌──────────────────────────────┐
+│ Air724UG   │ ◄──────(443 加密)──────►│          panel-server         │
+│ 设备端Lua  │    MQTT over WebSocket   │  ┌────────┐  ┌──────────────┐ │
+│ 固件 script│    cmd/{imei} 等主题      │  │ MQTT   │  │ HTTP 面板    │ │
+└────────────┘                          │  │ Broker │  │ (REST + 前端)│ │
+                                        │  │1883/8083│ └──────────────┘ │
+                                        │  └────────┘                   │
+                                        │       │   SQLite (panel.db)   │
+                                        └───────┴───────────────────────┘
 ```
 
+- 设备经 **wss（443）** 或内网 **ws://host:8083** 接入，MQTT 数据封装在 WebSocket 帧中传输，加密且省流量；内网也可直连 MQTT TCP 1883
 - 设备订阅 `cmd/{imei}` 接收指令，上报 `device/{imei}/online`（上线）与 `device/{imei}/result`（任务结果）
 - 面板通过 REST API 下发任务，服务端转 MQTT 推送给设备并等待回报（30 秒超时）
 
@@ -70,7 +72,8 @@ air724ug_web_panel/
 │   ├── web/              # 前端源码（Tailwind，源码目录）
 │   ├── static/           # 前端构建产物（编译进二进制）
 │   ├── build-web.ps1     # 前端构建脚本（Tailwind CLI + 复制到 static）
-│   ├── sim_device.py     # 模拟设备脚本（无实体设备时联调用）
+│   ├── sim_device.py     # 模拟设备脚本（TCP MQTT 联调用）
+│   ├── sim_device_ws.py  # 模拟设备脚本（WebSocket MQTT 联调用）
 │   ├── Dockerfile
 │   └── panel-server.exe  # 构建产物
 ├── docker-compose.yml    # Docker 一键部署
@@ -112,28 +115,64 @@ go build -o panel-server.exe .
 docker-compose up -d
 ```
 
-`docker-compose.yml` 暴露 `9527`（HTTP）与 `1883`（MQTT），SQLite 数据通过卷 `panel-data` 持久化到容器 `/app/data/panel.db`。
+`docker-compose.yml` 暴露 `9527`（HTTP）、`1883`（MQTT TCP）与 `8083`（MQTT WebSocket），SQLite 数据通过卷 `panel-data` 持久化到容器 `/app/data/panel.db`。
+
+### WSS 加密接入（推荐，公网部署）
+
+MQTT WebSocket 监听在 `8083` 端口（明文 ws）。公网部署建议用 nginx 做 TLS 终结并反代，设备以 `wss://你的域名/websocket` 一条链接接入，全程加密：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name panel.example.com;
+
+    ssl_certificate     /etc/nginx/ssl/fullchain.pem;   # 你的证书
+    ssl_certificate_key /etc/nginx/ssl/privkey.pem;
+
+    # 设备 MQTT over WSS：/websocket -> 127.0.0.1:8083
+    location /websocket {
+        proxy_pass http://127.0.0.1:8083;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 3600s;
+    }
+
+    # Web 面板
+    location / {
+        proxy_pass http://127.0.0.1:9527;
+    }
+}
+```
+
+> 若 80/443 与 Go 服务端不在同一台机器，把 `proxy_pass` 指向服务端 IP 即可；仅需开放 443，**无需**暴露 1883/8083 到公网。
 
 ## 设备端固件对接
 
 1. 将 `script/` 目录内容按原结构烧录到设备（底层固件见 `core/`）
-2. 在 `script/config.lua` 中配置服务端地址：
+2. 在 `script/config.lua` 中配置服务端地址，**推荐单链接 `MQTT_URL`**（一条链接搞定）：
 
 ```lua
--- MQTT 对接 Go 服务端
-MQTT_HOST = "你的服务器IP或域名"
-MQTT_PORT = 1883
-MQTT_KEEPALIVE = 300   -- 心跳间隔，可降低流量
+-- 公网（推荐）：wss 加密，nginx 反代 443
+MQTT_URL = "wss://panel.example.com/websocket"
+-- 内网明文 WebSocket：
+-- MQTT_URL = "ws://192.168.1.100:8083/websocket"
+-- 内网 MQTT 明文：
+-- MQTT_URL = "mqtt://192.168.1.100:1883"
+
+MQTT_KEEPALIVE = 300   -- 心跳间隔（秒），仅在此间隔发 2 字节心跳包，可降低流量
 ```
 
-3. `main.lua` 检测到 `config.MQTT_HOST` 非空即自动启动 MQTT 连接；同时需配置一个通知渠道（如 gotify）用于接收设备事件。
+> 也兼容旧参数 `MQTT_HOST` / `MQTT_PORT`（TCP 明文，`MQTT_URL` 留空时生效）。
+
+3. `main.lua` 检测到 `MQTT_URL` 或 `MQTT_HOST` 任一非空即自动启动 MQTT 连接；同时需配置一个通知渠道（如 gotify）用于接收设备事件。
 
 ### 设备端参数文件 nvm_para.lua
 
 设备端掉电保存的实时参数文件（`/nvm_para.lua`，备份 `/nvm_para_bak.lua`），优先级高于 `config.lua`。仓库内 `script/nvm_para.lua` 提供了**全部可写参数的注释示例**，可直接复制到面板「任务执行 → 写入配置」中使用，支持远程配置：
 
 - **通知方式**：`NOTIFY_TYPE` 及 gotify/telegram/bark/钉钉/飞书/企业微信等渠道参数
-- **MQTT 参数**：`MQTT_HOST` / `MQTT_PORT` / `MQTT_KEEPALIVE` 等
+- **MQTT 参数**：`MQTT_URL`（推荐单链接）/ `MQTT_HOST` / `MQTT_PORT` / `MQTT_KEEPALIVE` 等
 - 音量、来电动作、短信播报、开机通知、网卡、指示灯、SIM pin、录音上传地址等
 
 > 生效规则：固件用 `nvm.get()` 读取的参数（音量/来电动作/短信播报/开机通知等）写入后**重启持久生效**；用 `config.xxx` 读取的参数（MQTT 地址/通知渠道）写入后**当前运行立即生效**，跨重启持久生效需同步修改 `config.lua`。
@@ -167,18 +206,24 @@ MQTT_KEEPALIVE = 300   -- 心跳间隔，可降低流量
   "user": { "username": "登录用户名", "password": "bcrypt 密文" },
   "tokenVersion": 1,
   "port": 9527,
-  "mqtt": { "host": "0.0.0.0", "port": 1883 },
+  "mqtt": { "host": "0.0.0.0", "port": 1883, "wsPort": 8083 },
   "dbPath": "panel.db"
 }
 ```
 
+- `mqtt.port`：MQTT TCP 监听端口（内网明文直连，公网不建议暴露）
+- `mqtt.wsPort`：MQTT WebSocket 监听端口，0 表示不启用；供 nginx 反代 wss 使用
+
 ## 模拟设备联调（无实体设备）
 
-`server-go/sim_device.py` 模拟一台通过 MQTT 接入的设备，便于在没有 Air724UG 硬件时验证面板全流程。
+- `server-go/sim_device.py`：通过 MQTT TCP（1883）模拟接入
+- `server-go/sim_device_ws.py`：通过 MQTT over WebSocket（8083，验证 wss 链路）模拟接入，依赖 `paho-mqtt`
 
 ```bash
 cd server-go
 python sim_device.py
+# 或验证 WebSocket 链路：
+python sim_device_ws.py
 ```
 
 ## 免责声明

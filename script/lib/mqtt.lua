@@ -7,6 +7,7 @@
 require "log"
 require "socket"
 require "utils"
+require "websocket"
 module(..., package.seeall)
 
 -- MQTT 指令id
@@ -136,6 +137,39 @@ end
 
 local mqttc = {}
 mqttc.__index = mqttc
+
+-- WebSocket 传输桥接：把 websocket 对象包装成 mqtt.lua 期望的 io 接口（send/recv/close）
+-- MQTT 二进制数据通过 websocket 的二进制帧（opcode 0x2）传输
+local function wrapWebsocketIO(ws)
+    local io = { ws = ws }
+    function io:connect(host, port, timeout)
+        -- websocket 握手已在 connect 阶段完成，这里保持接口一致
+        return self.ws.connected and true or self.ws:connect(timeout or 20000)
+    end
+    function io:send(data)
+        -- 二进制帧入队，实际上行由 recvFrame 内的 uplink 触发
+        self.ws:send(data, false)
+        return true
+    end
+    function io:recv(timeout, msg, msgNoResume)
+        while true do
+            local r, data = self.ws:recv()
+            if r and data and #data > 0 then
+                return true, data
+            elseif r then
+                -- 仅收到控制帧（ping/pong），继续等待数据帧
+            elseif data == "WEBSOCKET_OK" then
+                return false, "timeout"
+            else
+                return false, data or "recv error"
+            end
+        end
+    end
+    function io:close()
+        self.ws:close()
+    end
+    return io
+end
 
 --- 创建一个mqtt client实例
 -- @string clientId
@@ -314,16 +348,32 @@ function mqttc:connect(host, port, transport, cert, timeout)
         self.io = nil
     end
     
-    if transport and transport ~= "tcp" and transport ~= "tcp_ssl" then
-        log.info("mqtt.client:connect", "invalid transport", transport)
-        return false
-    end
-    
-    self.io = socket.tcp(transport == "tcp_ssl" or type(cert) == "table", cert)
-    
-    if not self.io:connect(host, port, timeout) then
-        log.info("mqtt.client:connect", "connect host fail")
-        return false
+    if transport == "websocket" or transport == "websocket_ssl" or transport == "ws" or transport == "wss" then
+        -- WebSocket 传输：host 需为完整 URL，如 wss://host:port/path 或 ws://host:port/path
+        local wsurl = host
+        if not wsurl:match("^wss?://") then
+            local scheme = (transport == "websocket_ssl" or transport == "wss") and "wss" or "ws"
+            local wsport = (port and port ~= "") and tostring(port) or (scheme == "wss" and "443" or "80")
+            wsurl = scheme .. "://" .. host .. ":" .. wsport .. "/"
+        end
+        local ws = websocket.new(wsurl, cert)
+        if not ws:connect(timeout) then
+            log.info("mqtt.client:connect", "websocket connect fail", wsurl)
+            return false
+        end
+        self.io = wrapWebsocketIO(ws)
+    else
+        if transport and transport ~= "tcp" and transport ~= "tcp_ssl" then
+            log.info("mqtt.client:connect", "invalid transport", transport)
+            return false
+        end
+        
+        self.io = socket.tcp(transport == "tcp_ssl" or type(cert) == "table", cert)
+        
+        if not self.io:connect(host, port, timeout) then
+            log.info("mqtt.client:connect", "connect host fail")
+            return false
+        end
     end
     
     if not self:write(packCONNECT(self.clientId, self.keepAlive, self.username, self.password, self.cleanSession, self.will, self.version)) then

@@ -31,8 +31,9 @@ type UserConf struct {
 
 // MQTTConf 内嵌 MQTT broker 监听配置
 type MQTTConf struct {
-	Host string `json:"host"`
-	Port int    `json:"port"`
+	Host   string `json:"host"`
+	Port   int    `json:"port"`
+	WSPort int    `json:"wsPort"` // WebSocket 监听端口（设备经 nginx 反代 wss 接入），0 表示不启用
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -59,6 +60,9 @@ func loadConfig(path string) (*Config, error) {
 	if cfg.MQTT.Host == "" {
 		cfg.MQTT.Host = "0.0.0.0"
 	}
+	if cfg.MQTT.WSPort == 0 {
+		cfg.MQTT.WSPort = 8083
+	}
 	if cfg.DBPath == "" {
 		cfg.DBPath = "panel.db"
 	}
@@ -80,7 +84,7 @@ func newDefaultConfig(path string) (*Config, error) {
 		User:         UserConf{Username: "admin", Password: string(hash)},
 		TokenVersion: 1,
 		Port:         9527,
-		MQTT:         MQTTConf{Host: "0.0.0.0", Port: 1883},
+		MQTT:         MQTTConf{Host: "0.0.0.0", Port: 1883, WSPort: 8083},
 		DBPath:       "panel.db",
 		configFile:   path,
 	}

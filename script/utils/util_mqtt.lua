@@ -144,6 +144,36 @@ local function handleTask(imei, json_data)
     end)
 end
 
+-- 按配置建立 MQTT 连接（优先 MQTT_URL 单链接，兼容旧的 MQTT_HOST/MQTT_PORT）
+-- MQTT_URL 支持格式：
+--   wss://host/websocket      -- 加密 WebSocket（推荐，nginx 反代 443）
+--   ws://host:8083/websocket  -- 明文 WebSocket
+--   mqtt://host:1883          -- MQTT 明文
+--   mqtts://host:8883         -- MQTT over TLS
+local function mqttConnect(mqttc, timeout)
+    local url = config.MQTT_URL
+    if url and url ~= "" then
+        local scheme, host, port, path = url:match("(%a+)://([^:/]+):?(%d*)(.*)")
+        scheme = scheme and scheme:lower() or ""
+        if scheme == "wss" or scheme == "ws" then
+            -- WebSocket 传输（wss 加密，ws 明文），host 直接传完整 URL
+            return mqttc:connect(url, nil, scheme, nil, timeout)
+        elseif scheme == "mqtts" then
+            local p = (port and port ~= "") and tonumber(port) or 8883
+            return mqttc:connect(host, p, "tcp_ssl", nil, timeout)
+        else
+            -- mqtt 明文
+            local p = (port and port ~= "") and tonumber(port) or 1883
+            return mqttc:connect(host, p, "tcp", nil, timeout)
+        end
+    else
+        -- 兼容旧参数：MQTT_HOST / MQTT_PORT（明文 TCP）
+        local host = config.MQTT_HOST
+        local port = config.MQTT_PORT or 1883
+        return mqttc:connect(host, port, "tcp", nil, timeout)
+    end
+end
+
 -- MQTT 连接与消息循环（自动重连）
 local function startMQTT()
     local imei = misc.getImei()
@@ -158,8 +188,12 @@ local function startMQTT()
 
     sys.taskInit(function()
         while true do
-            log.info("mqtt", "正在连接服务端", config.MQTT_HOST, config.MQTT_PORT)
-            local ok = mqttc:connect(config.MQTT_HOST, config.MQTT_PORT, "tcp", nil, 30)
+            local target = config.MQTT_URL
+            if not target then
+                target = (config.MQTT_HOST or "") .. ":" .. tostring(config.MQTT_PORT or 1883)
+            end
+            log.info("mqtt", "正在连接服务端", target)
+            local ok = mqttConnect(mqttc, 30)
             if ok then
                 log.info("mqtt", "MQTT 连接成功, IMEI:", imei)
                 -- 订阅服务端指令主题
