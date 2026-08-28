@@ -12,6 +12,10 @@ local nvm = require "nvm"
 
 local mqttc = nil
 
+-- 任务结果待发队列：handleTask 只入队，由主循环统一发布
+-- （避免任务协程与主循环并发访问同一 socket 导致报文损坏/脚本崩溃重启）
+local resultQueue = {}
+
 -- 主题约定（与服务端保持一致）
 -- 设备订阅 : cmd/{imei}          （接收服务端下发指令）
 -- 设备上报 : device/{imei}/online（上线 retained）
@@ -126,7 +130,7 @@ local function handleTask(imei, json_data)
             error = err
         end
 
-        -- 通过 MQTT 回报任务结果
+        -- 任务结果入队，由主循环统一发布（避免并发访问 socket）
         local response = {
             type = "task_result",
             taskId = json_data.taskId,
@@ -135,12 +139,7 @@ local function handleTask(imei, json_data)
             error = error
         }
         log.info("发送任务结果：", json.encode(response))
-        if mqttc then
-            local ok, perr = mqttc:publish("device/" .. imei .. "/result", json.encode(response), 1, 0)
-            if not ok then
-                log.error("mqtt", "发布任务结果失败", perr)
-            end
-        end
+        table.insert(resultQueue, { imei = imei, payload = json.encode(response) })
     end)
 end
 
@@ -207,8 +206,17 @@ local function startMQTT()
                     mqttc:publish("device/" .. imei .. "/online", payload, 1, 1)
 
                     -- 接收循环（receive 内部会自动发送心跳包）
+                    -- receive 每约 5 秒内部超时返回一次，借此间隙发送排队中的任务结果
                     while true do
-                        local r, data = mqttc:receive(300000)
+                        -- 统一发布任务结果（与接收同协程，串行访问 socket）
+                        while #resultQueue > 0 do
+                            local item = table.remove(resultQueue, 1)
+                            local ok, perr = mqttc:publish("device/" .. item.imei .. "/result", item.payload, 1, 0)
+                            if not ok then
+                                log.error("mqtt", "发布任务结果失败", perr)
+                            end
+                        end
+                        local r, data = mqttc:receive(5000) -- 短轮询，保证队列结果及时上报（心跳在 receive 内部自动维持）
                         if r then
                             log.info("mqtt", "收到消息 topic=", data.topic)
                             local djson, json_data = pcall(json.decode, data.payload)
