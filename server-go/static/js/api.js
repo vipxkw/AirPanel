@@ -43,8 +43,8 @@ const API = {
   executeTask(payload) {
     return this.request('POST', '/executeTask', payload);
   },
-  tasks() {
-    return this.request('GET', '/tasks');
+  tasks(page = 1) {
+    return this.request('GET', '/tasks?page=' + encodeURIComponent(page));
   },
   clearTasks(payload) {
     return this.request('POST', '/tasks/clear', payload);

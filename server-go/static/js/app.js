@@ -515,12 +515,18 @@
 
   // ---------------- 任务记录 ----------------
 
-  async function loadTasks() {
+  let tasksPage = 1;
+
+  async function loadTasks(page) {
+    if (typeof page === 'number') tasksPage = page;
     try {
-      const tasks = await API.tasks();
+      const data = await API.tasks(tasksPage);
+      tasksPage = data.page || tasksPage;
+      const tasks = data.tasks || [];
       const tbody = $('#tasks-tbody');
       if (!tasks.length) {
         tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-10 text-center text-slate-400">暂无任务记录</td></tr>';
+        renderTaskPagination(0, 1);
         return;
       }
       tbody.innerHTML = tasks.map((t) => {
@@ -538,9 +544,46 @@
           <td class="px-4 py-3 text-slate-500 max-w-xs"><pre class="text-xs font-mono whitespace-pre-wrap break-all">${esc(result)}</pre></td>
         </tr>`;
       }).join('');
+      renderTaskPagination(data.total || 0, tasksPage);
     } catch (err) {
       $('#tasks-tbody').innerHTML = `<tr><td colspan="5" class="px-4 py-10 text-center text-red-500">${esc(err.message)}</td></tr>`;
+      renderTaskPagination(0, 1);
     }
+  }
+
+  // 渲染任务记录分页控件（每页 10 条）
+  function renderTaskPagination(total, page) {
+    const wrap = $('#tasks-pagination');
+    const info = $('#tasks-page-info');
+    const btns = $('#tasks-page-btns');
+    const totalPages = Math.max(1, Math.ceil(total / 10));
+
+    if (total <= 0) {
+      wrap.classList.add('hidden');
+      return;
+    }
+    wrap.classList.remove('hidden');
+    info.textContent = `共 ${total} 条记录 · 第 ${page} / ${totalPages} 页`;
+
+    // 页码列表：首末页 + 当前页相邻页，中间以省略号折叠
+    const list = [];
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || Math.abs(i - page) <= 1) list.push(i);
+      else if (list[list.length - 1] !== '…') list.push('…');
+    }
+
+    // 按钮样式以已有 Tailwind 类为主，缺失的工具类用内联样式补充
+    const btnCls = 'h-8 px-2 rounded-lg text-sm transition-colors';
+    const btnStyle = (dis) => `style="min-width:2rem${dis ? ';opacity:.4;cursor:not-allowed' : ''}"`;
+    let html = `
+      <button type="button" data-page="${page - 1}" class="${btnCls} text-slate-600" ${btnStyle(page <= 1)} ${page <= 1 ? 'disabled' : ''}>‹</button>`;
+    html += list.map((p) => p === '…'
+      ? '<span class="text-slate-300" style="width:1.5rem;text-align:center;line-height:2rem">…</span>'
+      : `<button type="button" data-page="${p}" class="${btnCls} ${p === page ? 'bg-blue-600 text-white' : 'text-slate-600'}" style="min-width:2rem">${p}</button>`
+    ).join('');
+    html += `
+      <button type="button" data-page="${page + 1}" class="${btnCls} text-slate-600" ${btnStyle(page >= totalPages)} ${page >= totalPages ? 'disabled' : ''}>›</button>`;
+    btns.innerHTML = html;
   }
 
   // ---------------- 自定义确认弹窗 ----------------
@@ -574,7 +617,7 @@
     try {
       const data = await API.clearTasks({ days });
       toast(`已删除 ${data.deleted} 条记录`);
-      loadTasks();
+      loadTasks(1);
     } catch (err) {
       toast(err.message, false);
     }
@@ -621,6 +664,13 @@
     $('#settings-form').addEventListener('submit', handleSettings);
     $('#clear-tasks-7d').addEventListener('click', () => clearTasks(7));
     $('#clear-tasks-all').addEventListener('click', () => clearTasks(0));
+    // 任务记录分页（事件委托）
+    $('#tasks-page-btns').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-page]');
+      if (!btn || btn.disabled) return;
+      const p = parseInt(btn.dataset.page, 10);
+      if (p >= 1) loadTasks(p);
+    });
     $('#confirm-cancel').addEventListener('click', () => closeConfirm(false));
     $('#confirm-ok').addEventListener('click', () => closeConfirm(true));
     $('#confirm-overlay').addEventListener('click', () => closeConfirm(false));

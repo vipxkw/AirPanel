@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -239,13 +240,30 @@ func (api *API) handleExecuteTask(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": result})
 }
 
+// handleTasks 分页返回任务记录。查询参数 page 从 1 开始，每页 10 条；同时返回总数供前端分页。
 func (api *API) handleTasks(w http.ResponseWriter, r *http.Request) {
-	tasks, err := api.app.db.recentTasks(50)
+	page := 1
+	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+		page = v
+	}
+	const pageSize = 10
+
+	tasks, err := api.app.db.recentTasks(page, pageSize)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "查询任务失败"})
 		return
 	}
-	writeJSON(w, http.StatusOK, tasks)
+	total, err := api.app.db.countTasks()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "查询任务失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"tasks":    tasks,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+	})
 }
 
 // handleClearTasks 删除任务记录。body: {"days": 7} 表示删除 7 天前的旧日志（保留近 7 天）；days <= 0 或缺省表示删除全部。

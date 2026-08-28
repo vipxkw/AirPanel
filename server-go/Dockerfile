@@ -8,8 +8,7 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 
-# 拷贝源码及前端产物（web/ 源 + static/ 已编译的静态文件）
-# 前端静态文件由 go:embed 内嵌进二进制，容器内无需再编译 Tailwind
+# 拷贝源码及前端静态文件（static/ 由 go:embed 内嵌进二进制）
 COPY . .
 
 # 项目使用纯 Go 实现（modernc.org/sqlite 不依赖 CGO），可静态编译

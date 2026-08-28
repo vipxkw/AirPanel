@@ -113,12 +113,15 @@ func (d *DB) recordTask(rec TaskRecord) error {
 	return err
 }
 
-// recentTasks 返回最近任务记录（关联设备备注名，用于展示）
-func (d *DB) recentTasks(limit int) ([]TaskRecord, error) {
+// recentTasks 返回最近任务记录（关联设备备注名，用于展示），按 id 倒序分页
+func (d *DB) recentTasks(page, pageSize int) ([]TaskRecord, error) {
+	if page < 1 {
+		page = 1
+	}
 	rows, err := d.sql.Query(
 		`SELECT t.task_id, t.imei, t.task, t.params, t.result, t.error, t.status, t.created_at, t.finished_at, d.name
 		 FROM tasks t LEFT JOIN devices d ON d.imei = t.imei
-		 ORDER BY t.id DESC LIMIT ?`, limit)
+		 ORDER BY t.id DESC LIMIT ? OFFSET ?`, pageSize, (page-1)*pageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -134,6 +137,13 @@ func (d *DB) recentTasks(limit int) ([]TaskRecord, error) {
 		out = append(out, rec)
 	}
 	return out, rows.Err()
+}
+
+// countTasks 统计任务记录总数
+func (d *DB) countTasks() (int64, error) {
+	var n int64
+	err := d.sql.QueryRow(`SELECT COUNT(*) FROM tasks`).Scan(&n)
+	return n, err
 }
 
 // deleteTasks 删除任务记录。days > 0 时只删除距今超过 days 天的旧日志（保留近 days 天）；days <= 0 时删除全部。

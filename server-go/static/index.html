@@ -278,7 +278,7 @@
           <div class="mb-4 sm:mb-6 flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 class="text-lg sm:text-xl font-semibold text-slate-900">任务记录</h2>
-              <p class="text-sm text-slate-500 mt-0.5">最近执行的任务（最多 50 条）</p>
+              <p class="text-sm text-slate-500 mt-0.5">任务执行历史，每页 10 条</p>
             </div>
             <div class="flex items-center gap-2">
               <button id="clear-tasks-7d" class="btn btn-ghost !px-3 !py-1.5 text-xs">清理 7 天前</button>
@@ -301,6 +301,11 @@
                   <tr><td colspan="5" class="px-4 py-10 text-center text-slate-400">加载中...</td></tr>
                 </tbody>
               </table>
+            </div>
+            <!-- 分页 -->
+            <div id="tasks-pagination" class="hidden flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
+              <span id="tasks-page-info" class="text-xs text-slate-400"></span>
+              <div id="tasks-page-btns" class="flex items-center gap-1"></div>
             </div>
           </div>
         </section>
