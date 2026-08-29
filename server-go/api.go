@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
@@ -44,6 +45,12 @@ func (api *API) routes() http.Handler {
 	mux.HandleFunc("/api/executeTask", api.authenticate(api.handleExecuteTask))
 	mux.HandleFunc("/api/tasks", api.authenticate(api.handleTasks))
 	mux.HandleFunc("/api/tasks/clear", api.authenticate(api.handleClearTasks))
+	mux.HandleFunc("/api/schedules", api.authenticate(api.handleSchedules))
+	mux.HandleFunc("/api/schedules/add", api.authenticate(api.handleAddSchedule))
+	mux.HandleFunc("/api/schedules/update", api.authenticate(api.handleUpdateSchedule))
+	mux.HandleFunc("/api/schedules/toggle", api.authenticate(api.handleToggleSchedule))
+	mux.HandleFunc("/api/schedules/delete", api.authenticate(api.handleDeleteSchedule))
+	mux.HandleFunc("/api/schedules/run", api.authenticate(api.handleRunSchedule))
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
@@ -285,6 +292,215 @@ func (api *API) handleClearTasks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"message": "删除成功", "deleted": n})
 }
 
+// ---------------- 定时任务 ----------------
+
+// scheduleBody 定时任务接口的请求体
+type scheduleBody struct {
+	ID      int64           `json:"id"`
+	Name    string          `json:"name"`
+	IMEI    string          `json:"imei"`
+	Task    string          `json:"task"`
+	Params  json.RawMessage `json:"params"`
+	Spec    json.RawMessage `json:"spec"`
+	Enabled *bool           `json:"enabled"`
+}
+
+// normalizeScheduleParams 任务参数：空 / null / {} 归一化为 "{}"，必须是 JSON 对象
+func normalizeScheduleParams(raw json.RawMessage) (string, error) {
+	s := strings.TrimSpace(string(raw))
+	if s == "" || s == "null" || s == "{}" {
+		return "{}", nil
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", errors.New("任务参数必须是 JSON 对象")
+	}
+	return s, nil
+}
+
+// parseScheduleBody 解析并校验定时任务请求体（新增/编辑共用）
+func parseScheduleBody(r *http.Request) (*scheduleBody, string, error) {
+	var body scheduleBody
+	if err := decodeJSON(r, &body); err != nil {
+		return nil, "", errors.New("请求体格式错误")
+	}
+	body.Name = strings.TrimSpace(body.Name)
+	if body.IMEI == "" {
+		return nil, "", errors.New("缺少设备 IMEI")
+	}
+	if body.Task == "" {
+		return nil, "", errors.New("缺少任务类型")
+	}
+	if err := validateSpec(body.Spec); err != nil {
+		return nil, "", err
+	}
+	params, err := normalizeScheduleParams(body.Params)
+	if err != nil {
+		return nil, "", err
+	}
+	return &body, params, nil
+}
+
+// handleSchedules GET 分页返回定时任务列表，每页 5 条（查询参数 page 从 1 开始）
+func (api *API) handleSchedules(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"message": "方法不允许"})
+		return
+	}
+	page := 1
+	if v, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && v > 0 {
+		page = v
+	}
+	const pageSize = 5
+
+	list, err := api.app.db.listSchedulesPage(page, pageSize)
+	if err != nil {
+		log.Printf("查询定时任务失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "查询定时任务失败"})
+		return
+	}
+	total, err := api.app.db.countSchedules()
+	if err != nil {
+		log.Printf("查询定时任务失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "查询定时任务失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"schedules": list,
+		"total":     total,
+		"page":      page,
+		"pageSize":  pageSize,
+	})
+}
+
+// handleAddSchedule 新增定时任务
+func (api *API) handleAddSchedule(w http.ResponseWriter, r *http.Request) {
+	body, params, err := parseScheduleBody(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error()})
+		return
+	}
+	enabled := body.Enabled == nil || *body.Enabled
+	sc := Schedule{
+		Name: body.Name, IMEI: body.IMEI, Task: body.Task,
+		Params: params, Spec: body.Spec, Enabled: enabled,
+	}
+	if _, err := api.app.db.addSchedule(sc); err != nil {
+		log.Printf("添加定时任务失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "添加定时任务失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "定时任务添加成功"})
+}
+
+// handleUpdateSchedule 编辑定时任务（整体更新）
+func (api *API) handleUpdateSchedule(w http.ResponseWriter, r *http.Request) {
+	body, params, err := parseScheduleBody(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": err.Error()})
+		return
+	}
+	if body.ID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "缺少任务 ID"})
+		return
+	}
+	if _, err := api.app.db.getSchedule(body.ID); err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"message": "定时任务不存在"})
+		return
+	}
+	enabled := body.Enabled == nil || *body.Enabled
+	sc := Schedule{
+		ID: body.ID, Name: body.Name, IMEI: body.IMEI, Task: body.Task,
+		Params: params, Spec: body.Spec, Enabled: enabled,
+	}
+	if err := api.app.db.updateSchedule(sc); err != nil {
+		log.Printf("更新定时任务失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "更新定时任务失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "定时任务已更新"})
+}
+
+// handleToggleSchedule 启用/停用定时任务
+func (api *API) handleToggleSchedule(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID      int64 `json:"id"`
+		Enabled bool  `json:"enabled"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	if body.ID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "缺少任务 ID"})
+		return
+	}
+	if err := api.app.db.setScheduleEnabled(body.ID, body.Enabled); err != nil {
+		log.Printf("切换定时任务状态失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "操作失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "状态已更新"})
+}
+
+// handleDeleteSchedule 删除定时任务
+func (api *API) handleDeleteSchedule(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID int64 `json:"id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	if body.ID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "缺少任务 ID"})
+		return
+	}
+	if err := api.app.db.deleteSchedule(body.ID); err != nil {
+		log.Printf("删除定时任务失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "删除失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "删除成功"})
+}
+
+// handleRunSchedule 立即执行一次定时任务（不等周期，直接下发）
+func (api *API) handleRunSchedule(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ID int64 `json:"id"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	if body.ID <= 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "缺少任务 ID"})
+		return
+	}
+	sc, err := api.app.db.getSchedule(body.ID)
+	if err != nil {
+		writeJSON(w, http.StatusNotFound, map[string]any{"message": "定时任务不存在"})
+		return
+	}
+	if !api.app.isDeviceOnline(sc.IMEI) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": "设备当前离线"})
+		return
+	}
+	var extra map[string]any
+	if sc.Params != "" && sc.Params != "{}" {
+		_ = json.Unmarshal([]byte(sc.Params), &extra)
+	}
+	if extra == nil {
+		extra = map[string]any{}
+	}
+	result, err := api.app.ExecuteTask(sc.IMEI, sc.Task, extra)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"success": false, "message": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "result": result})
+}
+
 // ---------------- 静态资源 ----------------
 
 func (api *API) handleStatic(w http.ResponseWriter, r *http.Request) {
@@ -303,6 +519,9 @@ func (api *API) handleStatic(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "静态资源不可用", http.StatusInternalServerError)
 		return
 	}
+
+	// 前端页面/脚本为 go:embed 内嵌资源，禁止浏览器缓存，避免改动后仍显示旧版本
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 
 	// 尝试真实文件
 	if f, err := sub.Open(p); err == nil {

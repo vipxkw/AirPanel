@@ -51,6 +51,18 @@ func (d *DB) init() error {
 			created_at  INTEGER DEFAULT 0,
 			finished_at INTEGER DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS schedules (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			name          TEXT DEFAULT '',
+			imei          TEXT NOT NULL,
+			task          TEXT NOT NULL,
+			params        TEXT DEFAULT '{}',
+			spec          TEXT NOT NULL,
+			enabled       INTEGER DEFAULT 1,
+			created_at    INTEGER DEFAULT 0,
+			last_executed INTEGER DEFAULT 0,
+			last_check    INTEGER DEFAULT 0
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := d.sql.Exec(s); err != nil {
@@ -169,6 +181,137 @@ func b2i(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// ---------------- 定时任务 ----------------
+
+// addSchedule 新增定时任务，返回任务 ID
+func (d *DB) addSchedule(sc Schedule) (int64, error) {
+	now := time.Now().Unix()
+	res, err := d.sql.Exec(
+		`INSERT INTO schedules (name, imei, task, params, spec, enabled, created_at, last_executed, last_check)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+		sc.Name, sc.IMEI, sc.Task, sc.Params, sc.Spec, b2i(sc.Enabled), now, now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// updateSchedule 编辑定时任务（保留执行历史字段）
+func (d *DB) updateSchedule(sc Schedule) error {
+	_, err := d.sql.Exec(
+		`UPDATE schedules SET name = ?, imei = ?, task = ?, params = ?, spec = ?, enabled = ? WHERE id = ?`,
+		sc.Name, sc.IMEI, sc.Task, sc.Params, sc.Spec, b2i(sc.Enabled), sc.ID,
+	)
+	return err
+}
+
+// setScheduleEnabled 启用/停用定时任务
+func (d *DB) setScheduleEnabled(id int64, enabled bool) error {
+	_, err := d.sql.Exec(`UPDATE schedules SET enabled = ? WHERE id = ?`, b2i(enabled), id)
+	return err
+}
+
+// deleteSchedule 删除定时任务
+func (d *DB) deleteSchedule(id int64) error {
+	_, err := d.sql.Exec(`DELETE FROM schedules WHERE id = ?`, id)
+	return err
+}
+
+// getSchedule 按 ID 查询单个定时任务
+func (d *DB) getSchedule(id int64) (*Schedule, error) {
+	row := d.sql.QueryRow(
+		`SELECT id, name, imei, task, params, spec, enabled, created_at, last_executed, last_check FROM schedules WHERE id = ?`, id)
+	var sc Schedule
+	var enabled int
+	var spec string
+	if err := row.Scan(&sc.ID, &sc.Name, &sc.IMEI, &sc.Task, &sc.Params, &spec, &enabled, &sc.CreatedAt, &sc.LastExecuted, &sc.LastCheck); err != nil {
+		return nil, err
+	}
+	sc.Spec = json.RawMessage(spec)
+	sc.Enabled = enabled != 0
+	return &sc, nil
+}
+
+// listSchedules 返回全部定时任务（关联设备备注名，按 id 倒序），调度器全量扫描使用
+func (d *DB) listSchedules() ([]Schedule, error) {
+	rows, err := d.sql.Query(
+		`SELECT s.id, s.name, s.imei, s.task, s.params, s.spec, s.enabled, s.created_at, s.last_executed, s.last_check, d.name
+		 FROM schedules s LEFT JOIN devices d ON d.imei = s.imei
+		 ORDER BY s.id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out = make([]Schedule, 0)
+	for rows.Next() {
+		var sc Schedule
+		var enabled int
+		var spec string
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.IMEI, &sc.Task, &sc.Params, &spec,
+			&enabled, &sc.CreatedAt, &sc.LastExecuted, &sc.LastCheck, &sc.DeviceName); err != nil {
+			return nil, err
+		}
+		sc.Spec = json.RawMessage(spec)
+		sc.Enabled = enabled != 0
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+// listSchedulesPage 分页返回定时任务（每页默认 5 条）
+func (d *DB) listSchedulesPage(page, pageSize int) ([]Schedule, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 5
+	}
+	rows, err := d.sql.Query(
+		`SELECT s.id, s.name, s.imei, s.task, s.params, s.spec, s.enabled, s.created_at, s.last_executed, s.last_check, d.name
+		 FROM schedules s LEFT JOIN devices d ON d.imei = s.imei
+		 ORDER BY s.id DESC LIMIT ? OFFSET ?`, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out = make([]Schedule, 0)
+	for rows.Next() {
+		var sc Schedule
+		var enabled int
+		var spec string
+		if err := rows.Scan(&sc.ID, &sc.Name, &sc.IMEI, &sc.Task, &sc.Params, &spec,
+			&enabled, &sc.CreatedAt, &sc.LastExecuted, &sc.LastCheck, &sc.DeviceName); err != nil {
+			return nil, err
+		}
+		sc.Spec = json.RawMessage(spec)
+		sc.Enabled = enabled != 0
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+// countSchedules 统计定时任务总数
+func (d *DB) countSchedules() (int64, error) {
+	var n int64
+	err := d.sql.QueryRow(`SELECT COUNT(*) FROM schedules`).Scan(&n)
+	return n, err
+}
+
+// markScheduleProcessed 记录一次周期判定：executed=true 表示已下发（同时推进 last_executed），
+// false 表示设备离线被跳过（仅推进 last_check，防止同一周期重复判定）
+func (d *DB) markScheduleProcessed(id int64, executed bool) error {
+	now := time.Now().Unix()
+	if executed {
+		_, err := d.sql.Exec(`UPDATE schedules SET last_check = ?, last_executed = ? WHERE id = ?`, now, now, id)
+		return err
+	}
+	_, err := d.sql.Exec(`UPDATE schedules SET last_check = ? WHERE id = ?`, now, id)
+	return err
 }
 
 // jsonBytes 用于日志/持久化的辅助

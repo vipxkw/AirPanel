@@ -9,8 +9,9 @@
 ## 特性
 
 - **设备远程管理**：设备列表、在线状态、一键下发任务（查询温度 / 发送短信 / 读取配置 / 写入配置）
-- **MQTT 接入**：Go 服务端内置 MQTT Broker，设备端通过 MQTT 对接，心跳仅 2 字节、间隔 300s，节省流量
-- **任务记录**：SQLite 持久化最近 50 条任务执行记录
+- **MQTT 接入**：Go 服务端内置 MQTT Broker，设备端通过 MQTT 对接，心跳仅 2 字节、间隔 30s，节省流量
+- **任务记录**：SQLite 持久化任务执行记录，分页查看（每页 10 条）
+- **定时任务**：宝塔面板式计划任务，支持每周 / 每月 / 每天 / 每小时 / 每 N 分钟 / 每 N 小时周期自动下发，设备离线时静默跳过该次执行
 - **远程配置**：读取 / 写入设备端 `nvm_para.lua` 参数文件，支持动态修改设备配置
 - **多通道通知**：设备端支持 gotify / telegram / bark / 钉钉 / 飞书 / 企业微信 / pushover / message-pusher 等通知渠道
 - **单二进制部署**：前端静态资源通过 `go:embed` 内嵌进 Go 二进制，支持 Docker 一键部署
@@ -70,19 +71,18 @@ air724ug_web_panel/
 │   ├── utils/            # 功能模块（util_mqtt / util_notify / util_mobile 等）
 │   └── handler/          # 事件处理（短信 / 来电 / 电源键菜单）
 ├── server-go/            # Go 服务端（当前主版本）
-│   ├── main.go           # 入口：加载配置、启动 HTTP + MQTT
+│   ├── main.go           # 入口：加载配置、启动 HTTP + MQTT + 定时任务调度器
 │   ├── api.go            # REST API 与静态资源（go:embed）
 │   ├── broker.go         # MQTT Broker、设备在线管理、任务下发
 │   ├── db.go             # SQLite 持久化
+│   ├── scheduler.go      # 定时任务调度器（周期检查 + 自动下发，离线静默跳过）
 │   ├── config.go         # 配置加载/保存
 │   ├── config.json       # 服务端配置（账号、端口、MQTT）
-│   ├── web/              # 前端源码（Tailwind，源码目录）
-│   ├── static/           # 前端构建产物（编译进二进制）
-│   ├── build-web.ps1     # 前端构建脚本（Tailwind CLI + 复制到 static）
+│   ├── static/           # 前端页面/脚本/CSS（编译进二进制，改动后直接重新 build）
 │   ├── sim_device.py     # 模拟设备脚本（TCP MQTT 联调用）
 │   ├── sim_device_ws.py  # 模拟设备脚本（WebSocket MQTT 联调用）
 │   ├── Dockerfile
-│   └── panel-server.exe  # 构建产物
+│   └── tools/            # 本地工具（tailwindcss CLI 等，不入库）
 ├── docker-compose.yml    # Docker 一键部署
 └── core/                 # 设备端底层固件包
 ```
@@ -104,16 +104,16 @@ go build -o panel-server.exe .
 - HTTP 面板 + MQTT over WebSocket（`/websocket`）：`http://127.0.0.1:9527`（单端口）
 - 默认账号：`admin / admin123`（可在面板「设置」中修改用户名/密码，或编辑 `config.json`）
 
-### 前端构建（改动 web/ 后需重新构建）
+### 前端修改（改动 static/ 后需重新构建）
 
-前端源码在 `server-go/web/`，构建产物在 `server-go/static/`（编译时通过 `go:embed` 内嵌进二进制，改动后需重新 `go build`）。
+前端资源在 `server-go/static/`（页面、JS、CSS），编译时通过 `go:embed` 内嵌进二进制，改动后重新 `go build` 即生效：
 
 ```powershell
-# 依赖 E:\tool\go-sdk\tailwindcss.exe（Tailwind 独立 CLI）
 cd server-go
-powershell -ExecutionPolicy Bypass -File .\build-web.ps1
 go build -o panel-server.exe .
 ```
+
+> `static/css/style.css` 为 Tailwind 编译产物，缺少的工具类请用内联样式或手动补齐，无需重新编译 Tailwind（`web/` 源目录已移除）。
 
 ### Docker 部署
 
@@ -187,7 +187,7 @@ MQTT_URL = "wss://panel.example.com/websocket"
 -- 内网 MQTT TCP（需服务端 config.json 中 mqtt.port > 0 启用）：
 -- MQTT_URL = "mqtt://192.168.1.100:1883"
 
-MQTT_KEEPALIVE = 300   -- 心跳间隔（秒），仅在此间隔发 2 字节心跳包，可降低流量
+MQTT_KEEPALIVE = 30    -- 心跳间隔（秒），仅在此间隔发 2 字节心跳包，可降低流量；30s 可避免 nginx 空闲超时断开
 ```
 
 > 也兼容旧参数 `MQTT_HOST` / `MQTT_PORT`（TCP 明文，`MQTT_URL` 留空时生效）。
@@ -208,8 +208,9 @@ MQTT_KEEPALIVE = 300   -- 心跳间隔（秒），仅在此间隔发 2 字节心
 
 - **设备列表**：IMEI / 备注 / 手机号 / 在线状态 / 接入时间，支持在线编辑设备备注、一键跳转执行任务
 - **任务执行**：三步向导式指挥台（选择设备 → 选择任务类型 → 下发执行），内置终端风格实时控制台展示执行过程
-- **任务类型**：查询温度、发送短信、读取配置（返回 `nvm_para.lua` 内容）、写入配置（覆盖 `nvm_para.lua`）
-- **任务记录**：最近 50 条执行记录（成功/失败 + 结果详情）
+- **任务类型**：支持 13+ 种远程命令（查询温度 / 发送短信 / 读取配置 / 写入配置 / 查询状态 / GPIO 控制 / 重启等），含命令大全与自定义命令
+- **定时任务**：宝塔面板式计划任务管理（新增 / 编辑 / 启停 / 删除 / 立即执行），支持全部任务类型，周期可选每周 / 每月 / 每天 / 每小时 / 每 N 分钟 / 每 N 小时，设备离线时静默跳过该次执行
+- **任务记录**：执行记录分页查看（每页 10 条，成功/失败 + 结果详情，可清理旧日志）
 - **设置**：修改登录用户名 / 密码
 
 ## API 一览
@@ -222,7 +223,14 @@ MQTT_KEEPALIVE = 300   -- 心跳间隔（秒），仅在此间隔发 2 字节心
 | GET | `/api/userPool` | 设备列表 | 是 |
 | POST | `/api/device/remark` | 设置设备备注（`{imei, name}`，name 为空表示清除） | 是 |
 | POST | `/api/executeTask` | 下发任务（`{imei, task, ...}`） | 是 |
-| GET | `/api/tasks` | 任务记录（最近 50 条） | 是 |
+| GET | `/api/tasks` | 任务记录（分页，每页 10 条） | 是 |
+| POST | `/api/tasks/clear` | 清理任务记录（`{days}`，≤0 清空全部） | 是 |
+| GET | `/api/schedules` | 定时任务列表（分页，每页 5 条） | 是 |
+| POST | `/api/schedules/add` | 新增定时任务 | 是 |
+| POST | `/api/schedules/update` | 编辑定时任务 | 是 |
+| POST | `/api/schedules/toggle` | 启用 / 停用定时任务 | 是 |
+| POST | `/api/schedules/delete` | 删除定时任务 | 是 |
+| POST | `/api/schedules/run` | 立即执行一次定时任务 | 是 |
 | GET | `/api/health` | 健康检查 | 否 |
 
 ## 服务端配置（config.json）
@@ -233,13 +241,12 @@ MQTT_KEEPALIVE = 300   -- 心跳间隔（秒），仅在此间隔发 2 字节心
   "user": { "username": "登录用户名", "password": "bcrypt 密文" },
   "tokenVersion": 1,
   "port": 9527,
-  "mqtt": { "host": "0.0.0.0", "port": 1883, "wsPort": 8083 },
+  "mqtt": { "host": "0.0.0.0", "port": 0 },
   "dbPath": "panel.db"
 }
 ```
 
-- `mqtt.port`：MQTT TCP 监听端口（内网明文直连，公网不建议暴露）
-- `mqtt.wsPort`：MQTT WebSocket 监听端口，0 表示不启用；供 nginx 反代 wss 使用
+- `mqtt.port`：MQTT TCP 监听端口，0 表示不启用；公网默认只走 WebSocket/WSS（与面板共享 9527，路径 `/websocket`）
 
 ## 模拟设备联调（无实体设备）
 

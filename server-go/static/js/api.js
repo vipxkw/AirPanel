@@ -49,6 +49,24 @@ const API = {
   clearTasks(payload) {
     return this.request('POST', '/tasks/clear', payload);
   },
+  schedules(page = 1) {
+    return this.request('GET', '/schedules?page=' + encodeURIComponent(page));
+  },
+  addSchedule(payload) {
+    return this.request('POST', '/schedules/add', payload);
+  },
+  updateSchedule(payload) {
+    return this.request('POST', '/schedules/update', payload);
+  },
+  toggleSchedule(payload) {
+    return this.request('POST', '/schedules/toggle', payload);
+  },
+  deleteSchedule(payload) {
+    return this.request('POST', '/schedules/delete', payload);
+  },
+  runSchedule(payload) {
+    return this.request('POST', '/schedules/run', payload);
+  },
   changeUserInfo(payload) {
     return this.request('POST', '/change-user-info', payload);
   },

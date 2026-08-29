@@ -34,6 +34,7 @@ func main() {
 		log.Fatalf("初始化失败: %v", err)
 	}
 	app.Start()
+	app.StartScheduler()
 
 	api := &API{app: app, cfg: cfg}
 	server := &http.Server{

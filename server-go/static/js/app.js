@@ -103,6 +103,7 @@
     });
     if (name === 'devices') loadDevices();
     if (name === 'tasks') renderDeviceSelect();
+    if (name === 'schedules') { renderSchDeviceSelect(); renderSchTaskSelect(); onSchCycleChange(); onSchTaskChange(); loadSchedules(); }
     if (name === 'logs') loadTasks();
     if (name === 'settings') {
       const uname = localStorage.getItem('panel_username') || 'admin';
@@ -586,6 +587,374 @@
     btns.innerHTML = html;
   }
 
+  // ---------------- 定时任务（计划任务） ----------------
+
+  const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+  let schedules = [];
+  let schEditingId = 0;
+  let schedulesPage = 1;
+
+  function renderSchDeviceSelect(selected) {
+    const sel = $('#sch-imei');
+    if (!sel) return;
+    if (!devices.length) {
+      sel.innerHTML = '<option value="">暂无设备</option>';
+      return;
+    }
+    sel.innerHTML = '<option value="">请选择设备</option>' + devices.map((d) =>
+      `<option value="${esc(d.imei)}" ${d.imei === selected ? 'selected' : ''}>${d.name ? esc(d.name) + ' · ' : ''}${esc(d.imei)}${d.connected ? '' : ' [离线]'}</option>`).join('');
+  }
+
+  function renderSchTaskSelect(selected) {
+    const sel = $('#sch-task');
+    if (!sel) return;
+    let html = TASK_GROUPS.map((g) =>
+      `<optgroup label="${g.name}">` + g.tasks.map((t) => {
+        const h = TASK_HELP[t];
+        return h ? `<option value="${t}">${h.title}</option>` : '';
+      }).join('') + '</optgroup>').join('');
+    html += '<optgroup label="其他"><option value="__custom__">自定义命令</option></optgroup>';
+    sel.innerHTML = html;
+    if (selected && sel.querySelector(`option[value="${CSS.escape(selected)}"]`)) sel.value = selected;
+  }
+
+  // 周期类型变化：渲染对应参数控件（宝塔面板风格，参数下拉框统一固定宽度保持一行紧凑）
+  function onSchCycleChange() {
+    const type = $('#sch-cycle').value;
+    const box = $('#sch-cycle-detail');
+    const numSel = (id, from, to, def, w) => {
+      let opts = '';
+      for (let i = from; i <= to; i++) {
+        opts += `<option value="${i}" ${i === def ? 'selected' : ''}>${String(i).padStart(2, '0')}</option>`;
+      }
+      return `<select id="${id}" class="input !py-1.5 !px-3 text-sm" style="width:${w || '4.2rem'}">${opts}</select>`;
+    };
+    const selCls = 'input !py-1.5 !px-3 text-sm';
+    if (type === 'weekly') {
+      box.innerHTML = `<span class="text-slate-500">每</span>` +
+        `<select id="sch-c-weekday" class="${selCls}" style="width:4rem">` + WEEKDAY_NAMES.map((w, i) => `<option value="${i}">${w}</option>`).join('') + `</select>` +
+        `<span class="text-slate-500">的</span>` + numSel('sch-c-hour', 0, 23, 8, '4.2rem') + `<span class="text-slate-500">点</span>` + numSel('sch-c-minute', 0, 59, 0, '4.2rem') + `<span class="text-slate-500">分</span>`;
+    } else if (type === 'monthly') {
+      box.innerHTML = `<span class="text-slate-500">每月</span>` + numSel('sch-c-day', 1, 31, 1, '4.2rem') + `<span class="text-slate-500">日</span>` + numSel('sch-c-hour', 0, 23, 8, '4.2rem') + `<span class="text-slate-500">点</span>` + numSel('sch-c-minute', 0, 59, 0, '4.2rem') + `<span class="text-slate-500">分</span>`;
+    } else if (type === 'daily') {
+      box.innerHTML = numSel('sch-c-hour', 0, 23, 8, '4.2rem') + `<span class="text-slate-500">点</span>` + numSel('sch-c-minute', 0, 59, 0, '4.2rem') + `<span class="text-slate-500">分</span>`;
+    } else if (type === 'hourly') {
+      box.innerHTML = `<span class="text-slate-500">每小时的</span>` + numSel('sch-c-minute', 0, 59, 0, '4.2rem') + `<span class="text-slate-500">分</span>`;
+    } else if (type === 'interval_min') {
+      box.innerHTML = `<span class="text-slate-500">每</span>` + numSel('sch-c-n', 1, 59, 5, '4.2rem') + `<span class="text-slate-500">分钟执行一次</span>`;
+    } else if (type === 'interval_hour') {
+      box.innerHTML = `<span class="text-slate-500">每</span>` + numSel('sch-c-n', 1, 23, 2, '4.2rem') + `<span class="text-slate-500">小时执行一次</span>`;
+    } else {
+      box.innerHTML = '';
+    }
+  }
+
+  // 收集表单中的执行周期
+  function getSchCycleSpec() {
+    const type = $('#sch-cycle').value;
+    const val = (id) => {
+      const el = $('#' + id);
+      return el ? parseInt(el.value, 10) : 0;
+    };
+    if (type === 'weekly') return { type: 'weekly', weekday: val('sch-c-weekday'), hour: val('sch-c-hour'), minute: val('sch-c-minute') };
+    if (type === 'monthly') return { type: 'monthly', day: val('sch-c-day'), hour: val('sch-c-hour'), minute: val('sch-c-minute') };
+    if (type === 'daily') return { type: 'daily', hour: val('sch-c-hour'), minute: val('sch-c-minute') };
+    if (type === 'hourly') return { type: 'hourly', minute: val('sch-c-minute') };
+    if (type === 'interval_min') return { type: 'interval', n: val('sch-c-n'), unit: 'minute' };
+    if (type === 'interval_hour') return { type: 'interval', n: val('sch-c-n'), unit: 'hour' };
+    return null;
+  }
+
+  // 编辑时把 spec 回填到表单
+  function specToForm(spec) {
+    if (!spec || !spec.type) return;
+    $('#sch-cycle').value = spec.type === 'interval'
+      ? (spec.unit === 'hour' ? 'interval_hour' : 'interval_min')
+      : spec.type;
+    onSchCycleChange();
+    const set = (id, v) => {
+      const el = $('#' + id);
+      if (el && v != null) el.value = String(v);
+    };
+    set('sch-c-weekday', spec.weekday);
+    set('sch-c-day', spec.day);
+    set('sch-c-hour', spec.hour);
+    set('sch-c-minute', spec.minute);
+    set('sch-c-n', spec.n);
+  }
+
+  // 任务类型变化：渲染参数表单（基于 TASK_HELP 参数定义）
+  function onSchTaskChange() {
+    const task = $('#sch-task').value;
+    const box = $('#sch-params');
+    if (task === '__custom__') {
+      box.innerHTML = `
+        <div class="border-t border-slate-100 pt-4 grid gap-4 grid-cols-2">
+          <div>
+            <label class="label" for="sch-custom-cmd">命令名称</label>
+            <input id="sch-custom-cmd" type="text" class="input font-mono text-xs" placeholder="如 ussd_query、get_status、set_gpio">
+          </div>
+          <div>
+            <label class="label" for="sch-custom-params">命令参数 <span class="text-slate-400 font-normal">（可选 JSON 对象）</span></label>
+            <textarea id="sch-custom-params" rows="2" class="input font-mono text-xs" placeholder='{"pin": 15, "level": 1}'></textarea>
+          </div>
+        </div>`;
+      return;
+    }
+    const h = TASK_HELP[task];
+    if (!h || !h.params.length) {
+      box.innerHTML = '<p class="text-xs text-slate-400 border-t border-slate-100 pt-3">该任务无需参数</p>';
+      return;
+    }
+    box.innerHTML = '<div class="border-t border-slate-100 pt-4 grid gap-4 grid-cols-2">' + h.params.map((p) => {
+      const isLong = p[0] === 'configText' || p[0] === 'content';
+      return `<div>
+        <label class="label" for="sch-p-${esc(p[0])}">${esc(p[0])}</label>
+        ${isLong
+          ? `<textarea id="sch-p-${esc(p[0])}" rows="3" class="input font-mono text-xs"></textarea>`
+          : `<input id="sch-p-${esc(p[0])}" type="text" class="input">`}
+        <p class="text-xs text-slate-400 mt-1">${p[1]}</p>
+      </div>`;
+    }).join('') + '</div>';
+  }
+
+  // 收集表单中的任务参数
+  function getSchParams() {
+    const task = $('#sch-task').value;
+    if (task === '__custom__') {
+      const raw = $('#sch-custom-params') ? $('#sch-custom-params').value.trim() : '';
+      let obj = {};
+      if (raw) {
+        try { obj = JSON.parse(raw); }
+        catch (_) { throw new Error('命令参数不是合法 JSON'); }
+      }
+      return obj;
+    }
+    const h = TASK_HELP[task];
+    const obj = {};
+    if (h && h.params.length) {
+      h.params.forEach((p) => {
+        const el = $('#sch-p-' + p[0]);
+        if (el) obj[p[0]] = el.value.trim();
+      });
+    }
+    return obj;
+  }
+
+  function specDescribe(spec) {
+    if (!spec || !spec.type) return '—';
+    const p2 = (n) => String(n).padStart(2, '0');
+    switch (spec.type) {
+      case 'weekly': return '每周' + (WEEKDAY_NAMES[spec.weekday] || '') + ' ' + p2(spec.hour) + ':' + p2(spec.minute);
+      case 'monthly': return '每月 ' + spec.day + ' 日 ' + p2(spec.hour) + ':' + p2(spec.minute);
+      case 'daily': return '每天 ' + p2(spec.hour) + ':' + p2(spec.minute);
+      case 'hourly': return '每小时 ' + p2(spec.minute) + ' 分';
+      case 'interval': return spec.unit === 'hour' ? '每 ' + spec.n + ' 小时' : '每 ' + spec.n + ' 分钟';
+    }
+    return '—';
+  }
+
+  async function loadSchedules(page) {
+    if (typeof page === 'number') schedulesPage = page;
+    try {
+      const data = await API.schedules(schedulesPage);
+      schedulesPage = data.page || schedulesPage;
+      schedules = data.schedules || [];
+      // 当前页被删空时自动回退一页
+      if (!schedules.length && schedulesPage > 1) {
+        schedulesPage -= 1;
+        return loadSchedules(schedulesPage);
+      }
+      renderSchedules();
+      renderSchedulePagination(data.total || 0, schedulesPage);
+    } catch (err) {
+      $('#schedules-tbody').innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center text-red-500">${esc(err.message)}</td></tr>`;
+      renderSchedulePagination(0, 1);
+    }
+  }
+
+  // 渲染定时任务分页控件（每页 5 条）
+  function renderSchedulePagination(total, page) {
+    const wrap = $('#schedules-pagination');
+    const info = $('#schedules-page-info');
+    const btns = $('#schedules-page-btns');
+    const pageSize = 5;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+    if (total <= 0) {
+      wrap.classList.add('hidden');
+      return;
+    }
+    wrap.classList.remove('hidden');
+    info.textContent = `共 ${total} 条 · 第 ${page} / ${totalPages} 页`;
+
+    const list = [];
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || Math.abs(i - page) <= 1) list.push(i);
+      else if (list[list.length - 1] !== '…') list.push('…');
+    }
+    const btnCls = 'h-8 px-2 rounded-lg text-sm transition-colors';
+    const btnStyle = (dis) => `style="min-width:2rem${dis ? ';opacity:.4;cursor:not-allowed' : ''}"`;
+    let html = `
+      <button type="button" data-page="${page - 1}" class="${btnCls} text-slate-600" ${btnStyle(page <= 1)} ${page <= 1 ? 'disabled' : ''}>‹</button>`;
+    html += list.map((p) => p === '…'
+      ? '<span class="text-slate-300" style="width:1.5rem;text-align:center;line-height:2rem">…</span>'
+      : `<button type="button" data-page="${p}" class="${btnCls} ${p === page ? 'bg-blue-600 text-white' : 'text-slate-600'}" style="min-width:2rem">${p}</button>`
+    ).join('');
+    html += `
+      <button type="button" data-page="${page + 1}" class="${btnCls} text-slate-600" ${btnStyle(page >= totalPages)} ${page >= totalPages ? 'disabled' : ''}>›</button>`;
+    btns.innerHTML = html;
+  }
+
+  function renderSchedules() {
+    const tbody = $('#schedules-tbody');
+    if (!schedules.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-10 text-center text-slate-400">暂无定时任务</td></tr>';
+      return;
+    }
+    tbody.innerHTML = schedules.map((s) => {
+      const taskLabel = TASK_HELP[s.task] ? TASK_HELP[s.task].title : s.task;
+      const deviceLabel = s.deviceName || s.imei;
+      const name = s.name || ('任务 #' + s.id);
+      return `
+      <tr class="hover:bg-slate-50 align-top">
+        <td class="px-4 py-3 text-slate-700">${esc(name)}</td>
+        <td class="px-4 py-3 text-slate-600">${esc(deviceLabel)}${s.deviceName ? `<span class="block text-xs font-mono text-slate-400 mt-0.5">${esc(s.imei)}</span>` : ''}</td>
+        <td class="px-4 py-3 text-slate-600"><span class="font-medium">${esc(taskLabel)}</span><span class="block text-xs font-mono text-slate-400 mt-0.5">${esc(s.task)}</span></td>
+        <td class="px-4 py-3 text-slate-600 whitespace-nowrap">${esc(specDescribe(s.spec))}</td>
+        <td class="px-4 py-3 text-slate-500 whitespace-nowrap">${fmtTime(s.lastExecuted)}</td>
+        <td class="px-4 py-3">${s.enabled ? '<span class="badge-online">已启用</span>' : '<span class="badge-offline">已停用</span>'}</td>
+        <td class="px-4 py-3 text-right whitespace-nowrap">
+          <button class="btn btn-ghost !px-3 !py-1.5 text-xs" data-sch-run="${s.id}">执行</button>
+          <button class="btn btn-ghost !px-3 !py-1.5 text-xs" data-sch-toggle="${s.id}" data-next="${s.enabled ? 0 : 1}">${s.enabled ? '停用' : '启用'}</button>
+          <button class="btn btn-ghost !px-3 !py-1.5 text-xs" data-sch-edit="${s.id}">编辑</button>
+          <button class="btn btn-ghost !px-3 !py-1.5 text-xs text-red-600 hover:text-red-700" data-sch-del="${s.id}">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function handleScheduleSubmit(e) {
+    e.preventDefault();
+    const imei = $('#sch-imei').value;
+    if (!imei) { toast('请选择目标设备', false); return; }
+    let params;
+    try { params = getSchParams(); }
+    catch (err) { toast(err.message, false); return; }
+    const taskSel = $('#sch-task').value;
+    let task = taskSel;
+    if (taskSel === '__custom__') {
+      const cmd = $('#sch-custom-cmd') ? $('#sch-custom-cmd').value.trim() : '';
+      if (!cmd) { toast('请输入命令名称', false); return; }
+      task = cmd;
+    }
+    const spec = getSchCycleSpec();
+    if (!spec) { toast('请选择执行周期', false); return; }
+
+    const payload = {
+      name: $('#sch-name').value.trim(),
+      imei, task, params, spec,
+      enabled: $('#sch-enabled').checked,
+    };
+    const btn = $('#sch-btn');
+    const wasEditing = !!schEditingId;
+    btn.disabled = true;
+    try {
+      const data = wasEditing
+        ? await API.updateSchedule(Object.assign({ id: schEditingId }, payload))
+        : await API.addSchedule(payload);
+      toast(data.message);
+      cancelScheduleEdit();
+      loadSchedules(wasEditing ? schedulesPage : 1);
+    } catch (err) {
+      toast(err.message, false);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function editSchedule(id) {
+    const s = schedules.find((x) => x.id === id);
+    if (!s) return;
+    schEditingId = s.id;
+    $('#sch-edit-id').value = String(s.id);
+    $('#sch-name').value = s.name || '';
+    renderSchDeviceSelect(s.imei);
+    let params = {};
+    try { params = JSON.parse(s.params || '{}'); } catch (_) { /* 忽略 */ }
+    if (TASK_HELP[s.task]) {
+      renderSchTaskSelect(s.task);
+      onSchTaskChange();
+      Object.keys(params).forEach((k) => {
+        const el = $('#sch-p-' + k);
+        if (el) el.value = params[k] != null ? String(params[k]) : '';
+      });
+    } else {
+      renderSchTaskSelect('__custom__');
+      onSchTaskChange();
+      if ($('#sch-custom-cmd')) $('#sch-custom-cmd').value = s.task;
+      if ($('#sch-custom-params')) $('#sch-custom-params').value = s.params && s.params !== '{}' ? s.params : '';
+    }
+    specToForm(s.spec);
+    $('#sch-enabled').checked = s.enabled;
+    $('#sch-btn').textContent = '保存修改';
+    $('#sch-cancel').classList.remove('hidden');
+    toast('正在编辑任务 #' + s.id);
+    $('#schedule-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function cancelScheduleEdit() {
+    schEditingId = 0;
+    $('#sch-edit-id').value = '';
+    $('#sch-name').value = '';
+    renderSchDeviceSelect();
+    renderSchTaskSelect();
+    $('#sch-task').selectedIndex = 0;
+    onSchTaskChange();
+    $('#sch-cycle').value = 'daily';
+    onSchCycleChange();
+    $('#sch-enabled').checked = true;
+    $('#sch-btn').textContent = '添加任务';
+    $('#sch-cancel').classList.add('hidden');
+  }
+
+  async function runScheduleNow(id) {
+    toast('正在下发任务，等待设备回报...');
+    try {
+      const data = await API.runSchedule({ id });
+      const result = data.result;
+      if (result && typeof result === 'object' && result.error) throw new Error(result.error);
+      toast('执行成功，结果见任务记录');
+      loadSchedules();
+    } catch (err) {
+      toast(err.message, false);
+    }
+  }
+
+  async function toggleScheduleRow(id, next) {
+    try {
+      const data = await API.toggleSchedule({ id, enabled: !!next });
+      toast(data.message);
+      loadSchedules();
+    } catch (err) {
+      toast(err.message, false);
+    }
+  }
+
+  async function deleteScheduleRow(id) {
+    const s = schedules.find((x) => x.id === id);
+    const ok = await showConfirm(`确定删除定时任务「${s ? (s.name || '#' + s.id) : '#' + id}」吗？删除后不可恢复。`);
+    if (!ok) return;
+    try {
+      const data = await API.deleteSchedule({ id });
+      toast(data.message);
+      loadSchedules();
+    } catch (err) {
+      toast(err.message, false);
+    }
+  }
+
   // ---------------- 自定义确认弹窗 ----------------
 
   let confirmResolver = null;
@@ -664,6 +1033,28 @@
     $('#settings-form').addEventListener('submit', handleSettings);
     $('#clear-tasks-7d').addEventListener('click', () => clearTasks(7));
     $('#clear-tasks-all').addEventListener('click', () => clearTasks(0));
+    // 定时任务
+    $('#schedule-form').addEventListener('submit', handleScheduleSubmit);
+    $('#sch-cycle').addEventListener('change', onSchCycleChange);
+    $('#sch-task').addEventListener('change', onSchTaskChange);
+    $('#sch-cancel').addEventListener('click', cancelScheduleEdit);
+    $('#schedules-tbody').addEventListener('click', (ev) => {
+      const run = ev.target.closest('[data-sch-run]');
+      if (run) { runScheduleNow(parseInt(run.dataset.schRun, 10)); return; }
+      const toggle = ev.target.closest('[data-sch-toggle]');
+      if (toggle) { toggleScheduleRow(parseInt(toggle.dataset.schToggle, 10), parseInt(toggle.dataset.next, 10)); return; }
+      const edit = ev.target.closest('[data-sch-edit]');
+      if (edit) { editSchedule(parseInt(edit.dataset.schEdit, 10)); return; }
+      const del = ev.target.closest('[data-sch-del]');
+      if (del) { deleteScheduleRow(parseInt(del.dataset.schDel, 10)); return; }
+    });
+    // 定时任务分页（事件委托）
+    $('#schedules-page-btns').addEventListener('click', (ev) => {
+      const btn = ev.target.closest('button[data-page]');
+      if (!btn || btn.disabled) return;
+      const p = parseInt(btn.dataset.page, 10);
+      if (p >= 1) loadSchedules(p);
+    });
     // 任务记录分页（事件委托）
     $('#tasks-page-btns').addEventListener('click', (ev) => {
       const btn = ev.target.closest('button[data-page]');

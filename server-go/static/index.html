@@ -59,6 +59,9 @@
           <a href="#" data-nav="tasks" class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white">
             <span class="text-base">⚡</span> 任务执行
           </a>
+          <a href="#" data-nav="schedules" class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white">
+            <span class="text-base">⏰</span> 定时任务
+          </a>
           <a href="#" data-nav="logs" class="nav-item flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-slate-800 hover:text-white">
             <span class="text-base">📋</span> 任务记录
           </a>
@@ -269,6 +272,94 @@
                   <li><a href="javascript:void(0)" id="task-library-link" class="text-blue-600 hover:text-blue-700 underline decoration-blue-300">更多命令：点击查看</a></li>
                 </ul>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 定时任务（计划任务） -->
+        <section id="page-schedules" class="page hidden">
+          <div class="mb-4 sm:mb-6">
+            <h2 class="text-lg sm:text-xl font-semibold text-slate-900">定时任务</h2>
+            <p class="text-sm text-slate-500 mt-0.5">计划任务：按设定周期自动下发设备命令，设备离线时静默跳过该次执行</p>
+          </div>
+
+          <!-- 添加 / 编辑表单 -->
+          <form id="schedule-form" class="card p-5 sm:p-6 space-y-4 mb-5">
+            <input type="hidden" id="sch-edit-id" value="">
+
+            <!-- 任务类型 + 目标设备：宽屏一行（任务类型在前），窄屏自适应各自一行 -->
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label class="label" for="sch-task">任务类型</label>
+                <select id="sch-task" class="input" required></select>
+              </div>
+              <div>
+                <label class="label" for="sch-imei">目标设备</label>
+                <select id="sch-imei" class="input" required></select>
+              </div>
+            </div>
+
+            <!-- 任务名称 -->
+            <div>
+              <label class="label" for="sch-name">任务名称 <span class="text-slate-400 font-normal">（可选）</span></label>
+              <input id="sch-name" type="text" class="input" maxlength="30" placeholder="如：每日状态巡检">
+            </div>
+
+            <!-- 执行周期：类型选择与参数同一行紧凑显示 -->
+            <div>
+              <label class="label" for="sch-cycle">执行周期</label>
+              <div class="flex items-center gap-2">
+                <select id="sch-cycle" class="input !py-1.5 !px-3 text-sm shrink-0" style="width:7rem" required>
+                  <option value="weekly">每周</option>
+                  <option value="monthly">每月</option>
+                  <option value="daily" selected>每天</option>
+                  <option value="hourly">每小时</option>
+                  <option value="interval_min">每 N 分钟</option>
+                  <option value="interval_hour">每 N 小时</option>
+                </select>
+                <div id="sch-cycle-detail" class="flex items-center gap-2 text-sm text-slate-600 whitespace-nowrap"></div>
+              </div>
+            </div>
+
+            <!-- 任务参数（随任务类型变化） -->
+            <div id="sch-params"></div>
+
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <label class="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input id="sch-enabled" type="checkbox" checked>
+                启用任务
+              </label>
+              <div class="flex items-center gap-2.5">
+                <button type="button" id="sch-cancel" class="btn btn-ghost hidden">取消编辑</button>
+                <button type="submit" id="sch-btn" class="btn btn-primary">添加任务</button>
+              </div>
+            </div>
+          </form>
+
+          <!-- 任务列表 -->
+          <div class="card overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-slate-50 text-left text-xs font-medium text-slate-500 uppercase">
+                    <th class="px-4 py-3">名称</th>
+                    <th class="px-4 py-3">设备</th>
+                    <th class="px-4 py-3">任务</th>
+                    <th class="px-4 py-3">执行周期</th>
+                    <th class="px-4 py-3">上次执行</th>
+                    <th class="px-4 py-3">状态</th>
+                    <th class="px-4 py-3 text-right">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="schedules-tbody" class="divide-y divide-slate-100">
+                  <tr><td colspan="7" class="px-4 py-10 text-center text-slate-400">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <!-- 分页（每页 5 条） -->
+            <div id="schedules-pagination" class="hidden flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
+              <span id="schedules-page-info" class="text-xs text-slate-400"></span>
+              <div id="schedules-page-btns" class="flex items-center gap-1"></div>
             </div>
           </div>
         </section>
