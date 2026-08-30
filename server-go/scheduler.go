@@ -124,6 +124,14 @@ func (a *App) isDeviceOnline(imei string) bool {
 	return online
 }
 
+// panelLoc 定时任务统一使用东八区（北京时间），不依赖运行环境的系统时区
+var panelLoc = func() *time.Location {
+	if loc, err := time.LoadLocation("Asia/Shanghai"); err == nil {
+		return loc
+	}
+	return time.FixedZone("CST", 8*3600)
+}()
+
 // StartScheduler 启动定时任务调度循环（每 30 秒检查一次）
 func (a *App) StartScheduler() {
 	go func() {
@@ -146,7 +154,7 @@ func (a *App) runDueSchedules() {
 		log.Printf("[定时任务] 读取任务列表失败: %v", err)
 		return
 	}
-	now := time.Now()
+	now := time.Now().In(panelLoc)
 	for _, sc := range list {
 		if !sc.Enabled {
 			continue
@@ -162,6 +170,7 @@ func (a *App) runDueSchedules() {
 
 		// 设备离线：静默跳过（仅推进判定时间，不执行、不记录、不通知）
 		if !a.isDeviceOnline(sc.IMEI) {
+			log.Printf("[定时任务] #%d 命中周期但设备离线，已跳过（%s）", sc.ID, spec.describe())
 			_ = a.db.markScheduleProcessed(sc.ID, false)
 			continue
 		}

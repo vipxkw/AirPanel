@@ -22,6 +22,9 @@ WORKDIR /app
 # 安装 CA 证书（设备端 HTTPS 通知等场景）与完整时区数据
 RUN apk add --no-cache ca-certificates tzdata
 
+# 设定容器时区为北京时间，保证定时任务按东八区判断周期
+ENV TZ=Asia/Shanghai
+
 COPY --from=builder /build/panel-server /app/panel-server
 
 # config.json 含敏感凭据，不入镜像也不入库；
