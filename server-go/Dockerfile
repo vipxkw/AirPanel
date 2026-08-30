@@ -28,7 +28,7 @@ ENV TZ=Asia/Shanghai
 COPY --from=builder /build/panel-server /app/panel-server
 
 # config.json 含敏感凭据，不入镜像也不入库；
-# 首次启动时服务会自动生成默认配置（admin/admin123），如需自定义可用卷挂载 config.json
+# 首次启动时服务会自动生成默认配置（admin/admin123），并持久化到卷内 /app/data/config.json（与 SQLite 同目录），升级容器不丢失
 
 # SQLite 数据库持久化目录（通过卷挂载）
 VOLUME ["/app/data"]
@@ -37,4 +37,4 @@ VOLUME ["/app/data"]
 EXPOSE 9527
 
 ENTRYPOINT ["/app/panel-server"]
-CMD ["-config", "/app/config.json", "-db", "/app/data/panel.db"]
+CMD ["-config", "/app/data/config.json", "-db", "/app/data/panel.db"]

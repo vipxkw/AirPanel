@@ -133,7 +133,7 @@ docker run -d --name air724ug-panel --restart unless-stopped \
 ```
 
 - `-p 9527` HTTP 面板 + MQTT over WebSocket（`/websocket`）共用，**只需这一个端口**
-- `-v panel-data:/app/data` SQLite 数据持久化到命名卷；容器内首次启动会自动生成默认配置（账号 `admin / admin123`，登录后请及时修改）
+- `-v panel-data:/app/data` SQLite 数据与 `config.json` 配置统一持久化到命名卷；容器内首次启动会自动生成默认配置（账号 `admin / admin123`，登录后请及时修改），**升级容器不会丢失已修改的账号密码等配置**
 - 公网仅暴露 443 给 nginx 反代时，把 `/websocket` 与 `/` 都反代到 `127.0.0.1:9527` 即可
 
 **方式二：本地构建 + docker-compose**
@@ -142,7 +142,16 @@ docker run -d --name air724ug-panel --restart unless-stopped \
 docker-compose up -d
 ```
 
-`docker-compose.yml` 仅发布 `9527`（HTTP 面板 + MQTT over WebSocket 共用），SQLite 数据通过卷 `panel-data` 持久化到容器 `/app/data/panel.db`。
+`docker-compose.yml` 仅发布 `9527`（HTTP 面板 + MQTT over WebSocket 共用），SQLite 数据库与 `config.json` 配置通过卷 `panel-data` 持久化到容器 `/app/data/` 下。
+
+> **从旧版本升级**（旧镜像把配置放在 `/app/config.json`）：升级前先导出旧配置，再放入卷：
+> ```bash
+> docker cp air724ug-panel:/app/config.json ./config.json
+> docker compose up -d --build
+> docker cp ./config.json air724ug-panel:/app/data/config.json
+> docker restart air724ug-panel
+> ```
+> 之后 `config.json` 与数据库同目录持久化，升级容器不再需要重新配置。
 
 ### WSS 加密接入（推荐，公网部署）
 
