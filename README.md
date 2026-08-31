@@ -2,7 +2,7 @@
 
 基于合宙 Air724UG（LuatOS-Air）4G 模组的远程管理面板与短信/通话转发器。
 
-设备端固件基于 [0wQ/air724ug-forwarder](https://github.com/0wQ/air724ug-forwarder) 修改扩展；服务端由 **Go 单二进制**（内置 HTTP 面板 + MQTT Broker），前端使用 **Tailwind CSS** 构建，相比原 WebSocket 方案显著降低设备流量消耗。
+服务端由 **Go 单二进制**（内置 HTTP 面板 + MQTT Broker），前端使用 **Tailwind CSS** 构建，相比原 WebSocket 方案显著降低设备流量消耗。
 
 > 请勿用于非法用途及盈利。
 
