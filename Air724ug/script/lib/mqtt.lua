@@ -211,6 +211,7 @@ function client(clientId, keepAlive, username, password, cleanSession, will, ver
         return packetId
     end
     o.lastOTime = 0
+    o.lastRecvTime = 0 -- 最近一次收到服务端数据的时刻（含 PINGRESP），用于检测静默断开
     
     setmetatable(o, mqttc)
     
@@ -263,9 +264,16 @@ function mqttc:read(timeout, msg, msgNoResume)
         
         local r, s, p = self.io:recv(recvTimeout == 0 and 5 or recvTimeout, msg, msgNoResume)
         if r then
+            -- 收到服务端任何数据（含 PINGRESP），刷新接收时间
+            self.lastRecvTime = os.time()
             self.inbuf = self.inbuf .. s
         elseif s == "timeout" then -- 超时，判断是否需要发送心跳包
             if not self:checkKeepAlive() then
+                return false
+            elseif self.keepAlive > 0 and os.time() - self.lastRecvTime >= self.keepAlive * 2 then
+                -- 超过 2 个 keepalive 周期未收到服务端任何数据（含 PINGRESP），
+                -- 判定连接已静默断开（服务端重启/网络中断），强制返回错误触发重连
+                log.error("mqtt", "超过 " .. (self.keepAlive * 2) .. " 秒未收到服务端数据，判定连接已断开")
                 return false
             elseif timeout <= recvTimeout then
                 return false, "timeout"
@@ -359,6 +367,8 @@ function mqttc:connect(host, port, transport, cert, timeout)
         local ws = websocket.new(wsurl, cert)
         if not ws:connect(timeout) then
             log.info("mqtt.client:connect", "websocket connect fail", wsurl)
+            -- 必须关闭底层 socket 释放通道，否则重试期间泄漏、耗尽模块 socket
+            ws:close()
             return false
         end
         self.io = wrapWebsocketIO(ws)
@@ -369,21 +379,26 @@ function mqttc:connect(host, port, transport, cert, timeout)
         end
         
         self.io = socket.tcp(transport == "tcp_ssl" or type(cert) == "table", cert)
-        
+
         if not self.io:connect(host, port, timeout) then
             log.info("mqtt.client:connect", "connect host fail")
+            self.io:close()
+            self.io = nil
             return false
         end
     end
-    
+
     if not self:write(packCONNECT(self.clientId, self.keepAlive, self.username, self.password, self.cleanSession, self.will, self.version)) then
         log.info("mqtt.client:connect", "send fail")
+        if self.io then self.io:close() self.io = nil end
         return false
     end
-    
+
     local r, packet = self:waitfor(CONNACK, self.commandTimeout, nil, true)
     if not r or packet.rc ~= 0 then
         log.info("mqtt.client:connect", "connack error", r and packet.rc or -1)
+        -- CONNACK 超时/被拒也必须关闭底层连接，释放 socket 通道
+        if self.io then self.io:close() self.io = nil end
         return false
     end
     

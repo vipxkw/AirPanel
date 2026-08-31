@@ -8,12 +8,15 @@
 
 ## 特性
 
-- **设备远程管理**：设备列表、在线状态、一键下发任务（查询温度 / 发送短信 / 读取配置 / 写入配置）
+- **设备远程管理**：设备列表、在线状态、一键下发任务（查询温度 / 发送短信 / 读取配置 / 写入配置）、删除设备
+- **多硬件支持**：Air724UG（LuatOS-Air）与 Air780EP / Y100E（LuatOS）两种设备端固件，共用同一服务端
 - **MQTT 接入**：Go 服务端内置 MQTT Broker，设备端通过 MQTT 对接，心跳仅 2 字节、间隔 30s，节省流量
 - **任务记录**：SQLite 持久化任务执行记录，分页查看（每页 10 条）
 - **定时任务**：宝塔面板式计划任务，支持每周 / 每月 / 每天 / 每小时 / 每 N 分钟 / 每 N 小时周期自动下发，设备离线时静默跳过该次执行
 - **远程配置**：读取 / 写入设备端 `nvm_para.lua` 参数文件，支持动态修改设备配置
 - **多通道通知**：设备端支持 gotify / telegram / bark / 钉钉 / 飞书 / 企业微信 / pushover / message-pusher 等通知渠道
+- **离线通知**：服务端通过心跳超时（固定 300 秒）或连接断开判定设备离线，支持 13 个通知渠道推送离线告警，并可发送测试通知验证渠道配置
+- **断线自愈**：设备端连接失败指数退避重连（5s→60s 封顶），内置双重看门狗（主循环假死 / 长期连不上自动重启自愈），静默断开检测（2 个 keepalive 周期无数据即重连），服务端重部署后设备自动恢复连接，无需人工断电
 - **单二进制部署**：前端静态资源通过 `go:embed` 内嵌进 Go 二进制，支持 Docker 一键部署
 
 ## 界面预览
@@ -63,28 +66,39 @@
 
 ```
 air724ug_web_panel/
-├── script/               # 设备端 Lua 固件
-│   ├── main.lua          # 入口：初始化、MQTT/Gotify 监听启动
-│   ├── config.lua        # 设备端默认配置（通知/MQTT/音量/来电动作等）
-│   ├── nvm_para.lua      # 设备端参数文件【参考模板】（可写入配置的示例）
-│   ├── lib/              # 底层库（nvm / mqtt / sys 等）
-│   ├── utils/            # 功能模块（util_mqtt / util_notify / util_mobile 等）
-│   └── handler/          # 事件处理（短信 / 来电 / 电源键菜单）
+├── Air724ug/             # Air724UG 设备端 Lua 固件（LuatOS-Air）
+│   ├── core/             # 底层固件包（.pac）
+│   └── script/
+│       ├── main.lua      # 入口：初始化、MQTT/通知监听启动
+│       ├── config.lua    # 设备端默认配置（通知/MQTT/音量/来电动作等，含注释示例）
+│       ├── nvm_para.lua  # 设备端参数文件【参考模板】（可写入配置的示例）
+│       ├── lib/          # 底层库（nvm / mqtt / websocket / sys 等）
+│       ├── utils/        # 功能模块（util_mqtt / util_notify / util_mobile 等）
+│       └── handler/      # 事件处理（短信 / 来电 / 电源键菜单）
+├── Air780EP(Y100E)/      # Air780EP / Y100E 设备端脚本（LuatOS，银尔达 Y100E）
+│   ├── core/             # 底层固件包（.soc）
+│   └── script/
+│       ├── main.lua      # 入口：初始化、MQTT/通知启动
+│       ├── config.lua    # 默认配置 + /lfs 远程覆盖层（set_config 持久化）
+│       ├── util_mqtt.lua # MQTT 对接（固件内置 mqtt 库，事件驱动 + 自动重连）
+│       ├── util_notify.lua # message-pusher 通知
+│       └── util_hw.lua   # GPIO / ADC / 串口硬件操作
 ├── server-go/            # Go 服务端（当前主版本）
 │   ├── main.go           # 入口：加载配置、启动 HTTP + MQTT + 定时任务调度器
 │   ├── api.go            # REST API 与静态资源（go:embed）
 │   ├── broker.go         # MQTT Broker、设备在线管理、任务下发
+│   ├── notify.go         # 离线通知渠道（13 渠道）
+│   ├── settings.go       # 面板设置（账号/通知，SQLite 持久化）
 │   ├── db.go             # SQLite 持久化
 │   ├── scheduler.go      # 定时任务调度器（周期检查 + 自动下发，离线静默跳过）
 │   ├── config.go         # 配置加载/保存
-│   ├── config.json       # 服务端配置（账号、端口、MQTT）
+│   ├── config.example.json # 服务端配置示例（账号、端口、MQTT）
 │   ├── static/           # 前端页面/脚本/CSS（编译进二进制，改动后直接重新 build）
-│   ├── sim_device.py     # 模拟设备脚本（TCP MQTT 联调用）
 │   ├── sim_device_ws.py  # 模拟设备脚本（WebSocket MQTT 联调用）
 │   ├── Dockerfile
 │   └── tools/            # 本地工具（tailwindcss CLI 等，不入库）
 ├── docker-compose.yml    # Docker 一键部署
-└── core/                 # 设备端底层固件包
+└── README.md
 ```
 
 ## 快速开始（Go 服务端）
@@ -185,8 +199,17 @@ server {
 
 ## 设备端固件对接
 
-1. 将 `script/` 目录内容按原结构烧录到设备（底层固件见 `core/`）
-2. 在 `script/config.lua` 中配置服务端地址，**推荐单链接 `MQTT_URL`**（一条链接搞定）：
+支持两种设备端固件，共用同一服务端：
+
+| 设备 | 目录 | 说明 |
+| --- | --- | --- |
+| Air724UG | `Air724ug/` | LuatOS-Air，自带 mqtt/websocket 库，手写重连循环 + 双看门狗 |
+| Air780EP / Y100E | `Air780EP(Y100E)/` | LuatOS，固件内置 mqtt 库（事件驱动 + autoreconn），支持 ws/wss（需 EC618 固件 >= 2025-09-23） |
+
+### Air724UG
+
+1. 将 `Air724ug/script/` 目录内容按原结构烧录到设备（底层固件见 `Air724ug/core/`）
+2. 在 `Air724ug/script/config.lua` 中配置服务端地址，**推荐单链接 `MQTT_URL`**（一条链接搞定）：
 
 ```lua
 -- 公网（推荐）：wss 加密，nginx 反代 443 → 面板端口 /websocket
@@ -203,24 +226,44 @@ MQTT_KEEPALIVE = 30    -- 心跳间隔（秒），仅在此间隔发 2 字节心
 
 3. `main.lua` 检测到 `MQTT_URL` 或 `MQTT_HOST` 任一非空即自动启动 MQTT 连接；同时需配置一个通知渠道（如 gotify）用于接收设备事件。
 
+### Air780EP / Y100E（银尔达 Y100E）
+
+1. 将 `Air780EP(Y100E)/script/` 目录内容烧录到设备（底层固件见 `Air780EP(Y100E)/core/`）
+2. 在 `Air780EP(Y100E)/script/config.lua` 中配置 `MQTT_URL`（与 Air724UG 格式一致，`wss://` 走 WebSocket 传输，需 EC618 固件 >= 2025-09-23）及 message-pusher 通知参数
+3. 支持 `get_status` / `get_device_info` / `set_gpio` / `uart_send` / `set_config`（写入 `/lfs/config_override.json`，重启后自动生效）等任务类型
+
+### 断线重连与自愈机制
+
+设备端 MQTT 采用**长连接 + 自动重连**设计，应对服务端重部署 / 网络波动等场景（以 Air724UG 为例，Y100E 由固件库 autoreconn + 心跳发布失败检测实现同类机制）：
+
+- **重连指数退避**：连接失败后按 5s→10s→20s→40s→60s（封顶）间隔重试，避免密集 SSL 连接风暴冲击模块 socket/AT 通道；服务端恢复后最多 60 秒内自动重连
+- **静默断开检测**：超过 2 个 keepalive 周期未收到服务端任何数据即判定断线，主动触发重连（服务端重启 / 网络中断后设备自动恢复，无需人工重启设备）
+- **应用层心跳**：按 `HEARTBEAT_INTERVAL`（默认 120 秒）周期上报 `device/{imei}/online`，服务端据此判定在线状态（心跳间隔须 ≤ 离线判定超时的一半）
+- **双重看门狗**（独立协程，主循环卡死时依然生效）：
+  - `MQTT_STUCK_TIMEOUT`（默认 5 分钟）：MQTT 主循环无响应（假死）→ 自动重启模块自愈
+  - `MQTT_REBOOT_TIMEOUT`（默认 15 分钟）：持续连不上服务端（如 socket 通道耗尽）→ 自动重启模块自愈
+  - 置 0 可关闭对应检测；均可通过 `nvm_para.lua` 远程覆盖
+- **开机通知带原因**：开机推送显示重启原因（按键开机 / 充电开机 / 软件重启 / 异常复位），便于远程区分正常开机与异常重启
+
 ### 设备端参数文件 nvm_para.lua
 
-设备端掉电保存的实时参数文件（`/nvm_para.lua`，备份 `/nvm_para_bak.lua`），优先级高于 `config.lua`。仓库内 `script/nvm_para.lua` 提供了**全部可写参数的注释示例**，可直接复制到面板「任务执行 → 写入配置」中使用，支持远程配置：
+设备端掉电保存的实时参数文件（`/nvm_para.lua`，备份 `/nvm_para_bak.lua`），优先级高于 `config.lua`。仓库内 `Air724ug/script/nvm_para.lua` 提供了**全部可写参数的注释示例**，可直接复制到面板「任务执行 → 写入配置」中使用，支持远程配置：
 
 - **通知方式**：`NOTIFY_TYPE` 及 gotify/telegram/bark/钉钉/飞书/企业微信等渠道参数
-- **MQTT 参数**：`MQTT_URL`（推荐单链接）/ `MQTT_HOST` / `MQTT_PORT` / `MQTT_KEEPALIVE` 等
+- **MQTT 参数**：`MQTT_URL`（推荐单链接）/ `MQTT_HOST` / `MQTT_PORT` / `MQTT_KEEPALIVE` / `HEARTBEAT_INTERVAL`（心跳间隔，默认 120 秒）等
+- **自愈参数**：`MQTT_STUCK_TIMEOUT`（假死看门狗，默认 5 分钟）/ `MQTT_REBOOT_TIMEOUT`（连接看门狗，默认 15 分钟），0 关闭
 - 音量、来电动作、短信播报、开机通知、网卡、指示灯、SIM pin、录音上传地址等
 
 > 生效规则：固件用 `nvm.get()` 读取的参数（音量/来电动作/短信播报/开机通知等）写入后**重启持久生效**；用 `config.xxx` 读取的参数（MQTT 地址/通知渠道）写入后**当前运行立即生效**，跨重启持久生效需同步修改 `config.lua`。
 
 ## Web 面板功能
 
-- **设备列表**：IMEI / 备注 / 手机号 / 在线状态 / 接入时间，支持在线编辑设备备注、一键跳转执行任务
+- **设备列表**：IMEI / 备注 / 手机号 / 在线状态 / 接入时间，支持在线编辑设备备注、一键跳转执行任务、删除设备（在线设备删除时自动断开其连接）
 - **任务执行**：三步向导式指挥台（选择设备 → 选择任务类型 → 下发执行），内置终端风格实时控制台展示执行过程
 - **任务类型**：支持 13+ 种远程命令（查询温度 / 发送短信 / 读取配置 / 写入配置 / 查询状态 / GPIO 控制 / 重启等），含命令大全与自定义命令
 - **定时任务**：宝塔面板式计划任务管理（新增 / 编辑 / 启停 / 删除 / 立即执行），支持全部任务类型，周期可选每周 / 每月 / 每天 / 每小时 / 每 N 分钟 / 每 N 小时，设备离线时静默跳过该次执行
 - **任务记录**：执行记录分页查看（每页 10 条，成功/失败 + 结果详情，可清理旧日志）
-- **设置**：修改登录用户名 / 密码
+- **设置**：Tab 式设置页——登录账号（用户名/密码）、离线通知（通知开关 / 13 渠道配置 / 发送测试通知；离线判定超时固定 300 秒）
 
 ## API 一览
 
@@ -231,6 +274,7 @@ MQTT_KEEPALIVE = 30    -- 心跳间隔（秒），仅在此间隔发 2 字节心
 | POST | `/api/change-user-info` | 修改用户名/密码 | 是 |
 | GET | `/api/userPool` | 设备列表 | 是 |
 | POST | `/api/device/remark` | 设置设备备注（`{imei, name}`，name 为空表示清除） | 是 |
+| POST | `/api/device/delete` | 删除设备（`{imei}`，在线设备会先断开其 MQTT 连接） | 是 |
 | POST | `/api/executeTask` | 下发任务（`{imei, task, ...}`） | 是 |
 | GET | `/api/tasks` | 任务记录（分页，每页 10 条） | 是 |
 | POST | `/api/tasks/clear` | 清理任务记录（`{days}`，≤0 清空全部） | 是 |
@@ -240,6 +284,10 @@ MQTT_KEEPALIVE = 30    -- 心跳间隔（秒），仅在此间隔发 2 字节心
 | POST | `/api/schedules/toggle` | 启用 / 停用定时任务 | 是 |
 | POST | `/api/schedules/delete` | 删除定时任务 | 是 |
 | POST | `/api/schedules/run` | 立即执行一次定时任务 | 是 |
+| GET | `/api/settings` | 读取面板设置（账号 / 离线通知配置） | 是 |
+| POST | `/api/settings/save` | 保存离线通知设置（开关 / 渠道 / 渠道配置） | 是 |
+| GET | `/api/notify/channels` | 获取 13 个离线通知渠道定义（供前端渲染表单） | 是 |
+| POST | `/api/notify/test` | 发送测试通知（按提交的渠道与配置立即推送） | 是 |
 | GET | `/api/health` | 健康检查 | 否 |
 
 ## 服务端配置（config.json）
@@ -256,18 +304,18 @@ MQTT_KEEPALIVE = 30    -- 心跳间隔（秒），仅在此间隔发 2 字节心
 ```
 
 - `mqtt.port`：MQTT TCP 监听端口，0 表示不启用；公网默认只走 WebSocket/WSS（与面板共享 9527，路径 `/websocket`）
+- 账号与离线通知设置存储在 SQLite `settings` 表（首次启动自动从 `config.json` 迁移账号），面板「设置」中修改即时生效
 
 ## 模拟设备联调（无实体设备）
 
-- `server-go/sim_device.py`：通过 MQTT TCP（1883）模拟接入
-- `server-go/sim_device_ws.py`：通过 MQTT over WebSocket（8083，验证 wss 链路）模拟接入，依赖 `paho-mqtt`
+`server-go/sim_device_ws.py`：通过 MQTT over WebSocket 模拟接入（验证 wss 链路），依赖 `paho-mqtt`
 
 ```bash
 cd server-go
-python sim_device.py
-# 或验证 WebSocket 链路：
 python sim_device_ws.py
 ```
+
+> 脚本默认连公网 wss（`panel.example.com:443`），内网联调请改为 `BROKER = "127.0.0.1"`、`WS_PORT = 9527`、`USE_TLS = False`。
 
 ## 免责声明
 

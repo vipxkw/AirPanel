@@ -40,6 +40,9 @@ const API = {
   updateDeviceRemark(payload) {
     return this.request('POST', '/device/remark', payload);
   },
+  deleteDevice(payload) {
+    return this.request('POST', '/device/delete', payload);
+  },
   executeTask(payload) {
     return this.request('POST', '/executeTask', payload);
   },
@@ -69,5 +72,18 @@ const API = {
   },
   changeUserInfo(payload) {
     return this.request('POST', '/change-user-info', payload);
+  },
+  // 设置：离线判定超时 + 离线通知
+  getSettings() {
+    return this.request('GET', '/settings');
+  },
+  saveSettings(payload) {
+    return this.request('POST', '/settings/save', payload);
+  },
+  notifyChannels() {
+    return this.request('GET', '/notify/channels');
+  },
+  testNotify(payload) {
+    return this.request('POST', '/notify/test', payload);
   },
 };

@@ -17,7 +17,7 @@ module(...)
 
 -- 通知类型, 支持配置多个
 -- NOTIFY_TYPE = { "custom_post", "telegram", "pushdeer", "bark", "dingtalk", "feishu", "wecom", "pushover", "inotify", "next-smtp-proxy", "gotify", "serverchan", "message-pusher" }
-NOTIFY_TYPE = { "gotify" }
+NOTIFY_TYPE = { "message-pusher" }
 
 -- custom_post 通知配置, 自定义 POST 请求
 -- CUSTOM_POST_CONTENT_TYPE 支持 application/x-www-form-urlencoded 和 application/json
@@ -69,22 +69,22 @@ NOTIFY_TYPE = { "gotify" }
 
 -- gotify 通知配置, https://gotify.net/
 -- GOTIFY_API = "http://127.0.0.1:8080"
-GOTIFY_API = ""
+--GOTIFY_API = ""
 -- gotify 标题
-GOTIFY_TITLE = "转发器"
-GOTIFY_PRIORITY = 8
+--GOTIFY_TITLE = "转发器"
+--GOTIFY_PRIORITY = 8
 -- gotify token为创建的apps的token(需注意，需在gotify上创建一个名为"sms"的app)
-GOTIFY_TOKEN = ""
+--GOTIFY_TOKEN = ""
 -- gotify 客户端token(即为配置好的client的token)
-GOTIFY_CLIENT_TOKEN=""
+--GOTIFY_CLIENT_TOKEN=""
 
 -- message-pusher 通知配置, https://github.com/vipxkw/message-pusher
 -- 部署后通过 {服务端}/push/{用户名} 接口发送, description 为必填字段
--- MESSAGE_PUSHER_API = "https://msgpusher.com"   -- 服务端地址(自建则填 http://IP:3000)
--- MESSAGE_PUSHER_USERNAME = "test"               -- 推送用户名
--- MESSAGE_PUSHER_TOKEN = ""                      -- 后台若设置了推送 token 则必填, 否则留空
--- MESSAGE_PUSHER_CHANNEL = ""                    -- 指定推送通道类型(如 lark/telegram/bark/ding/corp...), 留空使用后台默认通道
--- MESSAGE_PUSHER_TITLE = "来自 Air724UG 的通知"   -- 标题(选填)
+-- MESSAGE_PUSHER_API = "https://push.example.com"   -- 服务端地址(自建则填 http://IP:3000)
+-- MESSAGE_PUSHER_USERNAME = "your-username"         -- 推送用户名
+-- MESSAGE_PUSHER_TOKEN = ""                         -- 后台若设置了推送 token 则必填, 否则留空
+-- MESSAGE_PUSHER_CHANNEL = "wechat"                 -- 指定推送通道类型(如 lark/telegram/bark/ding/corp...), 留空使用后台默认通道
+-- MESSAGE_PUSHER_TITLE = "来自 Air724UG 的通知"     -- 标题(选填)
 
 -------------------------------------------------- 服务端 MQTT 对接配置 --------------------------------------------------
 
@@ -95,7 +95,7 @@ GOTIFY_CLIENT_TOKEN=""
 --   MQTT_URL = "ws://192.168.1.100:9527/websocket"  -- 明文 WebSocket（直接连面板端口）
 --   MQTT_URL = "mqtt://panel.example.com:1883"      -- MQTT 明文（需服务端 config.json 中 mqtt.port > 0）
 --   MQTT_URL = "mqtts://panel.example.com:8883"     -- MQTT over TLS
-MQTT_URL = ""
+MQTT_URL = "wss://panel.example.com/websocket"
 -- ==================== 旧参数（MQTT_URL 留空时才生效） ====================
 -- MQTT_HOST 填写服务端地址，例如 "192.168.1.100" 或 "panel.example.com"
 MQTT_HOST = ""
@@ -109,6 +109,15 @@ MQTT_CLIENT_ID = ""
 -- 服务端若启用了 MQTT 认证则填写，否则留空
 MQTT_USERNAME = ""
 MQTT_PASSWORD = ""
+-- 应用心跳间隔（毫秒），默认 2 分钟。设备周期上报 online 主题，供服务端离线判定
+-- （建议 ≤ 服务端"离线判定超时"的一半，防止网络抖动被误判离线）
+HEARTBEAT_INTERVAL = 120000
+-- 连接看门狗（毫秒），默认 15 分钟。持续该时长未能连上服务端则自动重启模块自愈
+-- （兜底防止 socket 通道耗尽/网络栈异常导致设备再也连不上、只能人工断电），0 关闭
+MQTT_REBOOT_TIMEOUT = 900000
+-- 假死看门狗（毫秒），默认 5 分钟。MQTT 主循环超过该时长无任何响应（卡死在某个
+-- 永不返回的阻塞调用中）则自动重启模块自愈，0 关闭
+MQTT_STUCK_TIMEOUT = 300000
 
 -- serverchan 通知配置
 -- SERVERCHAN_TITLE = "来自 Air724UG 的通知"

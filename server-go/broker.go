@@ -84,6 +84,9 @@ type App struct {
 	mu      sync.RWMutex
 	devices map[string]*DeviceState
 	pending sync.Map // taskId -> *pendingTask
+
+	settingsMu sync.RWMutex
+	settings   *Settings // 面板设置（账号/通知/离线超时），DB 缓存的只读副本
 }
 
 // NewApp 初始化 MQTT broker 与设备状态
@@ -121,11 +124,83 @@ func NewApp(cfg *Config, db *DB) (*App, error) {
 
 // Start 启动 broker 的事件循环
 func (a *App) Start() {
+	// 加载设置（首次运行时从 config.json 迁移账号到数据库）
+	a.initSettings()
+
+	// 服务启动时重置所有设备为离线（清理上次运行残留的在线状态，
+	// 服务异常退出/升级重启不会触发 OnDisconnect，设备重连上报 online 后自动恢复）
+	if err := a.db.resetAllOffline(); err != nil {
+		log.Printf("重置设备在线状态失败: %v", err)
+	}
 	go func() {
 		if err := a.broker.Serve(); err != nil {
 			log.Printf("MQTT broker 异常退出: %v", err)
 		}
 	}()
+	// 离线巡检：定期扫描设备，超过设置时限未上报则判定离线并通知
+	go a.patrolLoop()
+}
+
+// patrolLoop 离线巡检协程（每 30 秒一次）
+func (a *App) patrolLoop() {
+	time.Sleep(5 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		a.checkOffline()
+	}
+}
+
+// checkOffline 检查设备心跳超时：超过 offlineTimeout 未收到任何上报的设备判定为离线
+// （TCP/WS 连接可能在网络抖动时静默断开，OnDisconnect 不触发，此处兜底）
+func (a *App) checkOffline() {
+	timeout := int64(a.offlineTimeout())
+	if timeout <= 0 {
+		return
+	}
+	now := time.Now().Unix()
+	var offline []Device
+	a.mu.Lock()
+	for imei, st := range a.devices {
+		if st.Connected && now-st.LastSeen > timeout {
+			st.Connected = false // 提前置离线，防止重复触发
+			offline = append(offline, Device{IMEI: imei, Phone: st.Phone, LastSeen: st.LastSeen})
+		}
+	}
+	a.mu.Unlock()
+
+	for _, d := range offline {
+		if err := a.db.upsertDevice(d.IMEI, "", false, now); err != nil {
+			log.Printf("更新设备离线状态失败: %v", err)
+		}
+		log.Printf("设备离线超时判定 - IMEI: %s（超过 %d 秒未上报）", d.IMEI, timeout)
+		a.notifyDeviceOffline(d)
+	}
+}
+
+// notifyDeviceOffline 推送设备离线通知（按设置中启用的渠道逐个发送）
+func (a *App) notifyDeviceOffline(d Device) {
+	s := a.getSettings()
+	if !s.NotifyEnabled || len(s.NotifyChannels) == 0 {
+		return
+	}
+	name := a.db.getDeviceName(d.IMEI)
+	lastSeen := "—"
+	if d.LastSeen > 0 {
+		lastSeen = time.Unix(d.LastSeen, 0).Format("2006-01-02 15:04:05")
+	}
+	devLabel := d.IMEI
+	if name != "" {
+		devLabel = name + "（" + d.IMEI + "）"
+	}
+	msg := fmt.Sprintf("【设备离线】\n设备: %s\n最后活跃: %s", devLabel, lastSeen)
+	for _, ch := range s.NotifyChannels {
+		if err := sendNotify(msg, ch, s.NotifyConfig[ch]); err != nil {
+			log.Printf("离线通知发送失败 channel=%s: %v", ch, err)
+		} else {
+			log.Printf("离线通知已发送 channel=%s imei=%s", ch, d.IMEI)
+		}
+	}
 }
 
 // AppHook 内嵌 broker 的业务钩子
@@ -148,9 +223,21 @@ func (h *AppHook) Provides(b byte) bool {
 func (h *AppHook) OnConnectAuthenticate(cl *mqtt.Client, pk packets.Packet) bool { return true }
 func (h *AppHook) OnACLCheck(cl *mqtt.Client, topic string, write bool) bool     { return true }
 
-// OnDisconnect 设备断开：将其标记为离线（clientId 即 IMEI）
+// OnDisconnect 设备断开：延迟检查避免 session takeover 竞态条件
+// 当新连接接管同 clientID 的旧连接时，旧连接的 OnDisconnect 可能在
+// 新连接上线后才异步触发，导致设备被误判为离线。
 func (h *AppHook) OnDisconnect(cl *mqtt.Client, err error, expire bool) {
-	h.app.markDeviceOffline(cl.ID)
+	imei := cl.ID
+	if imei == "" {
+		return
+	}
+	log.Printf("设备连接断开 - IMEI: %s, 原因: %v, expire: %v", imei, err, expire)
+	// 延迟 5 秒再检查：如果设备在此期间重新上线（新连接发送 online），
+	// markDeviceOffline 会检测到 LastSeen 是最近更新的，不标记离线
+	go func() {
+		time.Sleep(5 * time.Second)
+		h.app.markDeviceOffline(imei)
+	}()
 }
 
 // OnPublished 设备上报：处理上线 / 任务结果
@@ -171,11 +258,16 @@ func (a *App) handleDevicePublish(clientID, topic, payload string) {
 		if imei == "" {
 			imei = msg.IMEI
 		}
+		// 首次上线（离线→在线转变）时回复连接成功；心跳上报仅刷新 lastSeen，不重复回复
+		wasOffline := !a.isDeviceOnline(imei)
 		a.upsertDevice(imei, msg.Phone, true)
-		// 回复连接成功
-		reply := fmt.Sprintf(`{"type":"connection_success","message":"连接成功"}`, )
-		_ = a.broker.Publish(topicPrefixCmd+imei, []byte(reply), false, 1)
-		log.Printf("设备上线 - IMEI: %s, 手机号: %s", imei, msg.Phone)
+		if wasOffline {
+			reply := fmt.Sprintf(`{"type":"connection_success","message":"连接成功"}`)
+			_ = a.broker.Publish(topicPrefixCmd+imei, []byte(reply), false, 1)
+			log.Printf("设备上线 - IMEI: %s, 手机号: %s", imei, msg.Phone)
+		} else {
+			log.Printf("设备心跳 - IMEI: %s", imei)
+		}
 
 	case strings.HasPrefix(topic, topicPrefixDevice) && strings.HasSuffix(topic, "/result"):
 		var msg resultMsg
@@ -199,7 +291,9 @@ func (a *App) upsertDevice(imei, phone string, connected bool) {
 		st = &DeviceState{}
 		a.devices[imei] = st
 	}
-	st.Phone = phone
+	if phone != "" {
+		st.Phone = phone
+	}
 	st.Connected = connected
 	st.LastSeen = now
 	a.mu.Unlock()
@@ -209,21 +303,50 @@ func (a *App) upsertDevice(imei, phone string, connected bool) {
 	}
 }
 
-// markDeviceOffline 设备断开
+// markDeviceOffline 设备断开：标记离线，且从在线转为离线时发送离线通知
+// 延迟调用（OnDisconnect 延迟 5 秒）：先查询 broker 中该 IMEI 是否仍有存活连接
+// （session takeover 时新连接已接管，旧连接的 OnDisconnect 不应把设备判离线）
 func (a *App) markDeviceOffline(imei string) {
 	if imei == "" {
 		return
 	}
+	// 权威判断：broker 中该 clientID 仍有存活连接则说明设备已重连，忽略旧连接断开
+	if cl, ok := a.broker.Clients.Get(imei); ok && !cl.Closed() {
+		log.Printf("设备仍有存活连接，忽略断开标记 - IMEI: %s", imei)
+		return
+	}
+
+	now := time.Now().Unix()
+	var wasOnline bool
+	var phone, lastSeen = "", int64(0)
+	shouldMarkOffline := false
+
 	a.mu.Lock()
 	if st, ok := a.devices[imei]; ok {
+		wasOnline = st.Connected
 		st.Connected = false
+		phone = st.Phone
+		lastSeen = st.LastSeen
+		shouldMarkOffline = true
 	}
 	a.mu.Unlock()
 
-	if err := a.db.upsertDevice(imei, "", false, time.Now().Unix()); err != nil {
+	if !shouldMarkOffline {
+		// 内存中无此设备（可能已被删除），仅在记录已存在时更新为离线，
+		// 不能 upsert —— 否则会把刚删除的设备重新写回数据库
+		if err := a.db.markDeviceOfflineExisting(imei, now); err != nil {
+			log.Printf("更新设备离线状态失败: %v", err)
+		}
+		return
+	}
+
+	if err := a.db.upsertDevice(imei, "", false, now); err != nil {
 		log.Printf("更新设备离线状态失败: %v", err)
 	}
-	log.Printf("设备已断开 - IMEI: %s", imei)
+	log.Printf("设备已离线 - IMEI: %s（最后活跃 %d秒前）", imei, now-lastSeen)
+	if wasOnline {
+		a.notifyDeviceOffline(Device{IMEI: imei, Phone: phone, LastSeen: lastSeen})
+	}
 }
 
 // deviceList 获取设备列表（内存状态 + 数据库）
@@ -249,6 +372,20 @@ func (a *App) deviceList() ([]Device, error) {
 // updateDeviceName 设置设备备注（空串表示清除）
 func (a *App) updateDeviceName(imei, name string) error {
 	return a.db.updateDeviceName(imei, name)
+}
+
+// deleteDevice 删除设备：若在线先断开其 MQTT 连接（否则心跳会立刻重新登记），再清理内存与数据库
+func (a *App) deleteDevice(imei string) error {
+	if cl, ok := a.broker.Clients.Get(imei); ok && !cl.Closed() {
+		log.Printf("删除设备 - 断开在线连接 - IMEI: %s", imei)
+		if err := a.broker.DisconnectClient(cl, packets.CodeDisconnect); err != nil {
+			log.Printf("断开设备连接失败 imei=%s: %v", imei, err)
+		}
+	}
+	a.mu.Lock()
+	delete(a.devices, imei)
+	a.mu.Unlock()
+	return a.db.deleteDevice(imei)
 }
 
 // ExecuteTask 下发任务给设备并等待结果（30 秒超时）
@@ -309,8 +446,14 @@ func (a *App) completeTask(msg resultMsg) {
 	a.pending.Delete(msg.TaskID)
 	p := v.(*pendingTask)
 	p.timeout.Stop()
+	// 设备回报 error 时（如不支持的任务类型）把原因带回调用方，
+	// 前端可见具体错误而不是 null
+	res := any(msg.Result)
+	if msg.Error != "" {
+		res = map[string]any{"error": msg.Error}
+	}
 	select {
-	case p.ch <- msg.Result:
+	case p.ch <- res:
 	default:
 	}
 }

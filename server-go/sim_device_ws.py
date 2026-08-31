@@ -4,11 +4,11 @@ import time
 import paho.mqtt.client as mqtt
 
 IMEI = "WSIMETEST01"
-# 公网 wss：https://sms.chinasclm.com/websocket -> host + 443 + TLS
-# 内网明文 ws：BROKER = "127.0.0.1", WS_PORT = 8083, 并去掉 tls_set()
-BROKER = "sms.chinasclm.com"
+# 公网 wss：https://panel.example.com/websocket -> host + 443 + TLS
+# 内网明文 ws：BROKER = "127.0.0.1", WS_PORT = 9527, 并去掉 tls_set()
+BROKER = "panel.example.com"
 WS_PORT = 443
-USE_TLS = True  # True=wss(443), False=ws(8083)
+USE_TLS = True  # True=wss(443), False=ws(9527)
 
 
 def on_connect(client, userdata, flags, rc):

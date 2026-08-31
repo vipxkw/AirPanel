@@ -63,6 +63,11 @@ func (d *DB) init() error {
 			last_executed INTEGER DEFAULT 0,
 			last_check    INTEGER DEFAULT 0
 		)`,
+		`CREATE TABLE IF NOT EXISTS settings (
+			key        TEXT PRIMARY KEY,
+			value      TEXT NOT NULL DEFAULT '',
+			updated_at INTEGER DEFAULT 0
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := d.sql.Exec(s); err != nil {
@@ -70,6 +75,61 @@ func (d *DB) init() error {
 		}
 	}
 	return nil
+}
+
+// resetAllOffline 服务启动时将全部设备标记为离线，
+// 清理上次运行残留的在线状态（服务异常退出/升级重启时不会触发 OnDisconnect）
+func (d *DB) resetAllOffline() error {
+	_, err := d.sql.Exec(`UPDATE devices SET connected = 0`)
+	return err
+}
+
+// ---------------- 设置（settings 表，键值对） ----------------
+
+// getSetting 读取设置项，不存在时返回空串
+func (d *DB) getSetting(key string) (string, error) {
+	var value string
+	err := d.sql.QueryRow(`SELECT value FROM settings WHERE key = ?`, key).Scan(&value)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return value, err
+}
+
+// setSetting 写入设置项（存在则覆盖）
+func (d *DB) setSetting(key, value string) error {
+	now := time.Now().Unix()
+	_, err := d.sql.Exec(
+		`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+		 ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?`,
+		key, value, now, value, now,
+	)
+	return err
+}
+
+// allSettings 读取全部设置项
+func (d *DB) allSettings() (map[string]string, error) {
+	rows, err := d.sql.Query(`SELECT key, value FROM settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]string{}
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			return nil, err
+		}
+		out[k] = v
+	}
+	return out, rows.Err()
+}
+
+// getDeviceName 查询设备备注名（可能为空串）
+func (d *DB) getDeviceName(imei string) string {
+	var name string
+	_ = d.sql.QueryRow(`SELECT name FROM devices WHERE imei = ?`, imei).Scan(&name)
+	return name
 }
 
 // upsertDevice 写入或更新设备记录（在线状态 + 最近活跃时间）
@@ -111,6 +171,19 @@ func (d *DB) listDevices() ([]Device, error) {
 // updateDeviceName 设置设备备注（name，空串表示清除）
 func (d *DB) updateDeviceName(imei, name string) error {
 	_, err := d.sql.Exec(`UPDATE devices SET name = ? WHERE imei = ?`, name, imei)
+	return err
+}
+
+// deleteDevice 删除设备记录
+func (d *DB) deleteDevice(imei string) error {
+	_, err := d.sql.Exec(`DELETE FROM devices WHERE imei = ?`, imei)
+	return err
+}
+
+// markDeviceOfflineExisting 仅将已存在的设备更新为离线（不新增记录）
+// 用于设备被删除后的断开回调：避免 upsert 把已删除的设备重新写回数据库
+func (d *DB) markDeviceOfflineExisting(imei string, lastSeen int64) error {
+	_, err := d.sql.Exec(`UPDATE devices SET connected = 0, last_seen = ? WHERE imei = ?`, lastSeen, imei)
 	return err
 }
 

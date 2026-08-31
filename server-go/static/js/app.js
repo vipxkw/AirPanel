@@ -112,18 +112,29 @@
         cur.value = uname;
         $('#set-new-username').placeholder = '当前：' + uname;
       }
+      loadNotifySettings();
     }
   }
 
   // ---------------- 设备列表 ----------------
 
   async function loadDevices() {
+    const btn = $('#refresh-devices');
+    const timeEl = $('#refresh-devices-time');
+    if (btn) { btn.disabled = true; btn.textContent = '刷新中...'; }
     try {
       devices = await API.userPool();
       renderDevices();
       renderDeviceSelect();
+      if (timeEl) {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        timeEl.textContent = '上次刷新 ' + `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+      }
     } catch (err) {
       $('#devices-tbody').innerHTML = `<tr><td colspan="7" class="px-4 py-10 text-center text-red-500">${esc(err.message)}</td></tr>`;
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '刷新'; }
     }
   }
 
@@ -150,8 +161,27 @@
         <td class="px-4 py-3 text-slate-500">${fmtTime(d.lastSeen)}</td>
         <td class="px-4 py-3 text-right">
           <button class="btn btn-ghost !px-3 !py-1.5 text-xs" data-run="${esc(d.imei)}">执行任务</button>
+          <button class="btn btn-ghost !px-3 !py-1.5 text-xs text-red-600 hover:text-red-700" data-del="${esc(d.imei)}">删除</button>
         </td>
       </tr>`).join('');
+  }
+
+  // 删除设备（在线设备会先被断开连接；若设备仍在运行，重连后会重新出现在列表）
+  async function deleteDevice(imei) {
+    const dev = devices.find((d) => d.imei === imei);
+    const label = dev && dev.name ? `${dev.name}（${imei}）` : imei;
+    const tip = dev && dev.connected
+      ? '该设备当前在线，删除后若设备仍在运行会自动重新接入。'
+      : '删除后不可恢复。';
+    const ok = await showConfirm(`确定删除设备 ${label} 吗？${tip}`);
+    if (!ok) return;
+    try {
+      await API.deleteDevice({ imei });
+      toast('设备已删除');
+      loadDevices();
+    } catch (err) {
+      toast(err.message, false);
+    }
   }
 
   // 内联编辑设备备注
@@ -1021,6 +1051,145 @@
     }
   }
 
+  // ---------------- 离线通知设置 ----------------
+
+  let notifyChannelDefs = []; // /api/notify/channels 返回的渠道定义
+  let notifySettings = null;  // /api/settings 返回的设置
+
+  // 加载设置与渠道定义，渲染离线通知表单
+  async function loadNotifySettings() {
+    const list = $('#notify-channels-list');
+    if (!list) return;
+    try {
+      const [defs, settings] = await Promise.all([API.notifyChannels(), API.getSettings()]);
+      notifyChannelDefs = defs;
+      notifySettings = settings;
+      $('#set-notify-enabled').checked = !!settings.notifyEnabled;
+      renderNotifyChannels();
+    } catch (err) {
+      toast(err.message, false);
+    }
+  }
+
+  // 渲染渠道勾选列表 + 各渠道配置表单
+  function renderNotifyChannels() {
+    const list = $('#notify-channels-list');
+    const cfgWrap = $('#notify-channel-configs');
+    const selected = notifySettings.notifyChannels || [];
+    const config = notifySettings.notifyConfig || {};
+    list.innerHTML = '';
+    cfgWrap.innerHTML = '';
+    notifyChannelDefs.forEach((ch) => {
+      const checked = selected.includes(ch.name);
+      const label = document.createElement('label');
+      label.className = 'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm cursor-pointer transition-colors';
+      label.style.borderColor = checked ? '#3b82f6' : '#e2e8f0';
+      label.style.backgroundColor = checked ? '#eff6ff' : '#ffffff';
+      label.style.color = checked ? '#1d4ed8' : '#475569';
+      label.innerHTML = '<input type="checkbox" data-channel="' + esc(ch.name) + '" class="w-4 h-4" style="accent-color:#2563eb" ' + (checked ? 'checked' : '') + '> <span>' + esc(ch.label) + '</span>';
+      list.appendChild(label);
+
+      // 各渠道配置表单
+      const box = document.createElement('div');
+      box.id = 'nch-cfg-' + ch.name;
+      box.dataset.channel = ch.name;
+      box.className = 'rounded-lg border border-slate-200 p-4';
+      box.style.display = checked ? '' : 'none';
+      const fields = ch.fields.map((f) => {
+        const val = (config[ch.name] || {})[f.key] || '';
+        let input;
+        if (f.type === 'textarea') {
+          input = '<textarea data-key="' + esc(f.key) + '" rows="2" class="input" placeholder="' + esc(f.placeholder || '') + '">' + esc(val) + '</textarea>';
+        } else {
+          const t = f.type === 'password' ? 'password' : f.type === 'number' ? 'number' : 'text';
+          input = '<input type="' + t + '" data-key="' + esc(f.key) + '" class="input" placeholder="' + esc(f.placeholder || '') + '" value="' + esc(val) + '">';
+        }
+        return '<div class="' + (f.type === 'textarea' ? 'sm:col-span-2' : '') + '">' +
+          '<label class="label">' + esc(f.label) + (f.required ? ' <span class="text-red-500">*</span>' : '') + '</label>' +
+          input + '</div>';
+      }).join('');
+      box.innerHTML = '<h4 class="text-sm font-semibold text-slate-700">' + esc(ch.label) + ' 配置</h4>' +
+        '<div class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">' + fields + '</div>';
+      cfgWrap.appendChild(box);
+    });
+  }
+
+  // 勾选渠道时显示/隐藏对应配置表单
+  function onNotifyChannelChange(ev) {
+    const cb = ev.target.closest('input[type="checkbox"][data-channel]');
+    if (!cb) return;
+    const box = $('#nch-cfg-' + cb.dataset.channel);
+    const label = cb.closest('label');
+    if (box) box.style.display = cb.checked ? '' : 'none';
+    if (label) {
+      label.className = cb.checked
+        ? 'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm cursor-pointer border-blue-500 bg-blue-50 text-blue-700 transition-colors'
+        : 'inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm cursor-pointer border-slate-200 bg-white text-slate-600 hover:border-slate-300 transition-colors';
+    }
+  }
+
+  // 保存离线通知设置
+  async function handleNotifySettings(e) {
+    e.preventDefault();
+    const msg = $('#notify-settings-msg');
+    msg.className = 'hidden';
+    const enabled = $('#set-notify-enabled').checked;
+    const channels = collectNotifyChannels();
+    const config = collectNotifyConfig(channels);
+    try {
+      await API.saveSettings({ notifyEnabled: enabled, notifyChannels: channels, notifyConfig: config });
+      notifySettings.notifyChannels = channels;
+      notifySettings.notifyConfig = config;
+      notifySettings.notifyEnabled = enabled;
+      msg.textContent = '设置已保存';
+      msg.className = 'text-sm text-emerald-600';
+      toast('设置已保存');
+    } catch (err) {
+      msg.textContent = err.message;
+      msg.className = 'text-sm text-red-600';
+    }
+  }
+
+  // 收集当前勾选的渠道列表
+  function collectNotifyChannels() {
+    return $$('#notify-channels-list input[data-channel]')
+      .filter((cb) => cb.checked)
+      .map((cb) => cb.dataset.channel);
+  }
+
+  // 收集当前勾选渠道的配置表单值
+  function collectNotifyConfig(channels) {
+    const config = {};
+    notifyChannelDefs.forEach((ch) => {
+      const box = $('#nch-cfg-' + ch.name);
+      if (!box || !channels.includes(ch.name)) return;
+      const values = {};
+      box.querySelectorAll('[data-key]').forEach((el) => { values[el.dataset.key] = el.value.trim(); });
+      config[ch.name] = values;
+    });
+    return config;
+  }
+
+  // 发送测试通知：用当前表单填写的渠道与配置立即推送一条测试消息
+  async function sendTestNotify() {
+    const channels = collectNotifyChannels();
+    if (channels.length === 0) { toast('请先勾选至少一个通知渠道', false); return; }
+    const config = collectNotifyConfig(channels);
+    const btn = $('#notify-test-btn');
+    const oldText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '发送中...';
+    try {
+      const res = await API.testNotify({ channels, config });
+      toast(res.message || '测试通知已发送', res.success !== false);
+    } catch (err) {
+      toast(err.message, false);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = oldText;
+    }
+  }
+
   // ---------------- 初始化 ----------------
 
   function bindEvents() {
@@ -1031,6 +1200,24 @@
     $$('input[name="task-type"]').forEach((r) => r.addEventListener('change', onTaskTypeChange));
     $('#console-clear').addEventListener('click', resetConsole);
     $('#settings-form').addEventListener('submit', handleSettings);
+    $('#notify-settings-form').addEventListener('submit', handleNotifySettings);
+    $('#notify-test-btn').addEventListener('click', sendTestNotify);
+    $('#notify-channels-list').addEventListener('change', onNotifyChannelChange);
+    // 设置页 Tab 切换
+    $$('.set-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.setTab;
+        $$('.set-tab-btn').forEach((b) => {
+          const active = b.dataset.setTab === tab;
+          b.style.color = active ? '#2563eb' : '#64748b';
+          b.style.borderBottom = active ? '2px solid #2563eb' : '2px solid transparent';
+          b.style.fontWeight = active ? '600' : 'normal';
+        });
+        $$('[id^="set-tab-"]').forEach((el) => {
+          el.classList.toggle('hidden', !el.id.endsWith(tab));
+        });
+      });
+    });
     $('#clear-tasks-7d').addEventListener('click', () => clearTasks(7));
     $('#clear-tasks-all').addEventListener('click', () => clearTasks(0));
     // 定时任务
@@ -1102,12 +1289,17 @@
     $$('.nav-item').forEach((a) =>
       a.addEventListener('click', (e) => { e.preventDefault(); switchPage(a.dataset.nav); toggleSidebar(false); }));
 
-    // 设备表格里"执行任务"按钮 / 备注编辑
+    // 设备表格里"执行任务"/"删除"按钮 / 备注编辑
     $('#devices-tbody').addEventListener('click', (e) => {
       const runBtn = e.target.closest('[data-run]');
       if (runBtn) {
         renderDeviceSelect(runBtn.dataset.run);
         switchPage('tasks');
+        return;
+      }
+      const delBtn = e.target.closest('[data-del]');
+      if (delBtn) {
+        deleteDevice(delBtn.dataset.del);
         return;
       }
       const remarkBtn = e.target.closest('[data-remark]');

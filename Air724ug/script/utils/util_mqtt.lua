@@ -19,6 +19,15 @@ local nvm = require "nvm"
 
 local mqttc = nil
 
+-- 看门狗状态（rtos.tick()*5 为开机起毫秒数的单调时钟）
+-- lastAliveMs：MQTT 主循环仍在运转（所有阻塞调用都正常返回）的最新时刻
+-- lastOkMs  ：最近一次成功连上服务端的时刻
+local lastAliveMs, lastOkMs = 0, 0
+
+local function tickMs() return rtos.tick() * 5 end
+local function touchAlive() lastAliveMs = tickMs() end
+local function touchOk() lastOkMs = tickMs() end
+
 -- USSD 查询结果 URC：运营商回复后通过通知渠道推送
 ril.regUrc("+CUSD", function(data)
     util_notify.add({ "USSD 查询结果", data or "", "#USSD" })
@@ -299,19 +308,55 @@ local function startMQTT()
         clientID = imei
     end
 
-    -- clientId, keepAlive(默认300秒), username, password, cleanSession
-    mqttc = mqtt.client(clientID, config.MQTT_KEEPALIVE or 300,
-        config.MQTT_USERNAME, config.MQTT_PASSWORD, 1)
+    -- 看门狗基准初始化
+    lastAliveMs, lastOkMs = tickMs(), tickMs()
+
+    -- 独立看门狗协程（与 MQTT 主循环相互独立，主循环卡死时它依然运行）：
+    -- 1) MQTT_STUCK_TIMEOUT（默认 5 分钟）内主循环毫无动静 —— 主循环卡死在某个
+    --    永不返回的阻塞调用里（假死），重启模块自愈
+    -- 2) MQTT_REBOOT_TIMEOUT（默认 15 分钟）内没有一次成功连接 —— socket 通道
+    --    耗尽/网络异常等，重启模块自愈
+    -- 对应配置为 0 时关闭对应检测
+    sys.taskInit(function()
+        local stuckTimeout = config.MQTT_STUCK_TIMEOUT or 300000
+        local rebootTimeout = config.MQTT_REBOOT_TIMEOUT or 900000
+        while true do
+            sys.wait(30000)
+            local n = tickMs()
+            if stuckTimeout > 0 and n - lastAliveMs >= stuckTimeout then
+                log.error("mqtt", "主循环超过", math.floor(stuckTimeout / 60000),
+                    "分钟无响应（假死），自动重启自愈")
+                sys.restart("MQTT_STUCK")
+            elseif rebootTimeout > 0 and n - lastOkMs >= rebootTimeout then
+                log.error("mqtt", "持续", math.floor(rebootTimeout / 60000),
+                    "分钟未能连接服务端，自动重启自愈")
+                sys.restart("MQTT_WATCHDOG")
+            end
+        end
+    end)
 
     sys.taskInit(function()
+        -- 重连指数退避：连续失败时等待 5s→10s→20s→40s→60s（封顶）
+        -- 服务端停机期间若仍 5 秒一次地密集新建 SSL 连接，会持续冲击模块
+        -- socket/AT 通道，可能触发 ril 的 AT 超时保护（3 分钟无应答即重启模块），
+        -- 表现为"断线重连后设备自己重启"。退避可消除该压力，服务端恢复后最多
+        -- 60 秒内自动重连
+        local retry = 0
         while true do
+            touchAlive()
             local target = config.MQTT_URL
             if not target then
                 target = (config.MQTT_HOST or "") .. ":" .. tostring(config.MQTT_PORT or 1883)
             end
             log.info("mqtt", "正在连接服务端", target)
+            -- 每次连接前都重建客户端对象：
+            -- MQTT 客户端断开后不能复用（内部状态未重置），复用会导致重连失败、只能重启设备
+            mqttc = mqtt.client(clientID, config.MQTT_KEEPALIVE or 300,
+                config.MQTT_USERNAME, config.MQTT_PASSWORD, 1)
             local ok = mqttConnect(mqttc, 30)
             if ok then
+                retry = 0
+                touchOk()
                 log.info("mqtt", "MQTT 连接成功, IMEI:", imei)
                 -- 订阅服务端指令主题
                 local sub_ok = mqttc:subscribe("cmd/" .. imei, 1)
@@ -323,18 +368,46 @@ local function startMQTT()
                     local payload = json.encode({ type = "online", imei = imei, phone = util_mobile.getNumber() })
                     mqttc:publish("device/" .. imei .. "/online", payload, 1, 1)
 
-                    -- 接收循环（receive 内部会自动发送心跳包）
-                    -- receive 每约 5 秒内部超时返回一次，借此间隙发送排队中的任务结果
-                    while true do
+                    -- 应用心跳间隔（毫秒）：周期重复上报 online，刷新服务端 lastSeen，用于离线判定
+                    local beatInterval = config.HEARTBEAT_INTERVAL or 120000
+                    local lastBeatMs = rtos.tick() * 5 -- 单调时钟（开机起毫秒数，不受 NTP 校时影响）
+
+                    -- 接收循环（receive 内部会自动发送协议心跳包）
+                    -- receive 每约 5 秒内部超时返回一次，借此间隙发送排队中的任务结果与应用心跳
+                    local dead = false
+                    while not dead do
+                        -- 周期心跳：按间隔重复上报，避免设备真离线/假离线无法被服务端及时感知
+                        local nowMs = rtos.tick() * 5
+                        if nowMs - lastBeatMs >= beatInterval then
+                            lastBeatMs = nowMs
+                            -- QoS1 发布会等待服务端 PUBACK；连接若已静默断开（服务端重启/网络中断），
+                            -- PUBACK 超时后 publish 返回 false，据此判定连接已死并触发重连
+                            local pok, perr = mqttc:publish("device/" .. imei .. "/online", payload, 1, 1)
+                            if not pok then
+                                log.error("mqtt", "心跳发布失败，连接已断开，准备重连:", perr)
+                                break
+                            end
+                        end
                         -- 统一发布任务结果（与接收同协程，串行访问 socket）
                         while #resultQueue > 0 do
                             local item = table.remove(resultQueue, 1)
                             local ok, perr = mqttc:publish("device/" .. item.imei .. "/result", item.payload, 1, 0)
                             if not ok then
-                                log.error("mqtt", "发布任务结果失败", perr)
+                                -- 发布失败说明连接已断：放回队列，待重连成功后补发，并跳出接收循环
+                                log.error("mqtt", "发布任务结果失败，连接已断开，放回队列待重连后补发:", perr)
+                                table.insert(resultQueue, 1, item)
+                                dead = true
+                                break
                             end
                         end
+                        if dead then
+                            break
+                        end
                         local r, data = mqttc:receive(5000) -- 短轮询，保证队列结果及时上报（心跳在 receive 内部自动维持）
+                        touchAlive() -- receive 是最可能永久阻塞的调用，返回即证明主循环存活
+                        touchOk()    -- 连接健康存活即视为"可达服务端"，持续刷新连接看门狗
+                                     -- （否则连接成功 15 分钟后 lastOkMs 不再更新，会被
+                                     --   MQTT_WATCHDOG 误判为"一直连不上"而周期性重启）
                         if r then
                             log.info("mqtt", "收到消息 topic=", data.topic)
                             local djson, json_data = pcall(json.decode, data.payload)
@@ -349,12 +422,19 @@ local function startMQTT()
                         end
                     end
                 end
-                -- 断开本次连接，等待重连
-                mqttc:disconnect()
+                -- 断开本次连接，等待重连（连接可能已断开，忽略断开错误）
+                pcall(mqttc.disconnect, mqttc)
             else
-                log.error("mqtt", "MQTT 连接失败，5 秒后重试")
+                -- 兜底释放底层 socket：服务端重启期间（nginx 返回 502/连接超时）
+                -- 每次失败若不释放会泄漏一个 socket 通道，耗尽后设备无法再连接
+                pcall(mqttc.disconnect, mqttc)
             end
-            sys.wait(5000)
+            retry = retry + 1
+            local waitMs = math.min(5000 * (2 ^ (retry - 1)), 60000)
+            if retry > 1 then
+                log.info("mqtt", "下次重连等待", math.floor(waitMs / 1000), "秒（第", retry, "次重试）")
+            end
+            sys.wait(waitMs)
         end
     end)
 end

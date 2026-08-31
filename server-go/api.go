@@ -42,6 +42,7 @@ func (api *API) routes() http.Handler {
 	mux.HandleFunc("/api/change-user-info", api.authenticate(api.handleChangeUserInfo))
 	mux.HandleFunc("/api/userPool", api.authenticate(api.handleUserPool))
 	mux.HandleFunc("/api/device/remark", api.authenticate(api.handleUpdateDeviceRemark))
+	mux.HandleFunc("/api/device/delete", api.authenticate(api.handleDeleteDevice))
 	mux.HandleFunc("/api/executeTask", api.authenticate(api.handleExecuteTask))
 	mux.HandleFunc("/api/tasks", api.authenticate(api.handleTasks))
 	mux.HandleFunc("/api/tasks/clear", api.authenticate(api.handleClearTasks))
@@ -51,6 +52,10 @@ func (api *API) routes() http.Handler {
 	mux.HandleFunc("/api/schedules/toggle", api.authenticate(api.handleToggleSchedule))
 	mux.HandleFunc("/api/schedules/delete", api.authenticate(api.handleDeleteSchedule))
 	mux.HandleFunc("/api/schedules/run", api.authenticate(api.handleRunSchedule))
+	mux.HandleFunc("/api/settings", api.authenticate(api.handleGetSettings))
+	mux.HandleFunc("/api/settings/save", api.authenticate(api.handleSaveSettings))
+	mux.HandleFunc("/api/notify/channels", api.authenticate(api.handleNotifyChannels))
+	mux.HandleFunc("/api/notify/test", api.authenticate(api.handleTestNotify))
 	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 	})
@@ -118,8 +123,9 @@ func (api *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := api.cfg
-	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(cfg.User.Username)) != 1 ||
-		bcrypt.CompareHashAndPassword([]byte(cfg.User.Password), []byte(body.Password)) != nil {
+	s := api.app.getSettings()
+	if subtle.ConstantTimeCompare([]byte(body.Username), []byte(s.Username)) != 1 ||
+		bcrypt.CompareHashAndPassword([]byte(s.Password), []byte(body.Password)) != nil {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"message": "用户名或密码错误"})
 		return
 	}
@@ -158,15 +164,17 @@ func (api *API) handleChangeUserInfo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
 		return
 	}
+	// 账号信息存储在数据库 settings 表
+	s := api.app.getSettings()
 	cfg := api.cfg
-	if bcrypt.CompareHashAndPassword([]byte(cfg.User.Password), []byte(body.OldPassword)) != nil {
+	if bcrypt.CompareHashAndPassword([]byte(s.Password), []byte(body.OldPassword)) != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"message": "原密码错误"})
 		return
 	}
 
 	hasChanges := false
-	if body.NewUsername != "" && body.NewUsername != cfg.User.Username {
-		cfg.User.Username = body.NewUsername
+	if body.NewUsername != "" && body.NewUsername != s.Username {
+		s.Username = strings.TrimSpace(body.NewUsername)
 		hasChanges = true
 	}
 	if body.NewPassword != "" {
@@ -175,21 +183,103 @@ func (api *API) handleChangeUserInfo(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "加密失败"})
 			return
 		}
-		cfg.User.Password = string(hash)
+		s.Password = string(hash)
 		hasChanges = true
 	}
 	if hasChanges {
 		cfg.TokenVersion++
+		if err := api.app.saveSettings(s); err != nil {
+			log.Printf("保存用户信息失败: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "保存失败"})
+			return
+		}
 	}
 	if err := api.cfg.Save(); err != nil {
 		log.Printf("保存配置失败: %v", err)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"message":    "用户信息修改成功",
-		"username":   cfg.User.Username,
+		"message":     "用户信息修改成功",
+		"username":    s.Username,
 		"needRelogin": hasChanges,
 	})
+}
+
+// ---------------- 设置（通知 / 离线判定） ----------------
+
+// handleGetSettings 返回面板设置（密码哈希不回传）
+func (api *API) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, api.app.getSettings())
+}
+
+// handleSaveSettings 保存设置：离线通知配置
+// 账号（用户名/密码）走 /api/change-user-info（带原密码校验）
+func (api *API) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		NotifyEnabled  bool                         `json:"notifyEnabled"`
+		NotifyChannels []string                     `json:"notifyChannels"`
+		NotifyConfig   map[string]map[string]string `json:"notifyConfig"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	s := api.app.getSettings()
+	s.NotifyEnabled = body.NotifyEnabled
+	if body.NotifyChannels == nil {
+		body.NotifyChannels = []string{}
+	}
+	s.NotifyChannels = body.NotifyChannels
+	if body.NotifyConfig == nil {
+		body.NotifyConfig = map[string]map[string]string{}
+	}
+	s.NotifyConfig = body.NotifyConfig
+
+	if err := api.app.saveSettings(s); err != nil {
+		log.Printf("保存设置失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "保存设置失败"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"message": "设置已保存"})
+}
+
+// handleTestNotify 发送测试通知：用表单中当前填写的渠道与配置立即推送一条测试消息
+func (api *API) handleTestNotify(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		NotifyChannels []string                     `json:"channels"`
+		NotifyConfig   map[string]map[string]string `json:"config"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	if len(body.NotifyChannels) == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"success": false, "message": "请先选择至少一个通知渠道"})
+		return
+	}
+	if body.NotifyConfig == nil {
+		body.NotifyConfig = map[string]map[string]string{}
+	}
+	msg := "【测试通知】Air724UG 设备面板离线通知配置正常"
+	var failed []string
+	for _, ch := range body.NotifyChannels {
+		if err := sendNotify(msg, ch, body.NotifyConfig[ch]); err != nil {
+			log.Printf("测试通知发送失败 channel=%s: %v", ch, err)
+			failed = append(failed, ch+": "+err.Error())
+		} else {
+			log.Printf("测试通知已发送 channel=%s", ch)
+		}
+	}
+	if len(failed) > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"success": false, "message": "部分渠道发送失败: " + strings.Join(failed, "；")})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "message": "测试通知已发送"})
+}
+
+// handleNotifyChannels 返回支持的通知渠道定义（供前端渲染配置表单）
+func (api *API) handleNotifyChannels(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, notifyChannelDefs())
 }
 
 func (api *API) handleUserPool(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +311,27 @@ func (api *API) handleUpdateDeviceRemark(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"message": "备注已保存"})
+}
+
+func (api *API) handleDeleteDevice(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		IMEI string `json:"imei"`
+	}
+	if err := decodeJSON(r, &body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "请求体格式错误"})
+		return
+	}
+	if body.IMEI == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"message": "缺少设备 IMEI"})
+		return
+	}
+	if err := api.app.deleteDevice(body.IMEI); err != nil {
+		log.Printf("删除设备失败: %v", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"message": "删除设备失败"})
+		return
+	}
+	log.Printf("设备已删除 - IMEI: %s", body.IMEI)
+	writeJSON(w, http.StatusOK, map[string]any{"message": "设备已删除"})
 }
 
 func (api *API) handleExecuteTask(w http.ResponseWriter, r *http.Request) {

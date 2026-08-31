@@ -281,9 +281,12 @@ sys.taskInit(function()
         log.info("main", "MQTT 服务端已配置，开始启动 MQTT 连接。")
         util_mqtt.start()
     end
-    -- 开机通知
+    -- 开机通知（附带开机原因，便于远程区分正常开机与异常重启）
     if nvm.get("BOOT_NOTIFY") then
-        util_notify.add("#BOOT_" .. rtos.poweron_reason())
+        -- 0=开机键 1=充电 2=闹钟 3=软件重启(sys.restart 触发) 4=异常/看门狗复位
+        local reasonMap = { [0] = "按键开机", [1] = "充电开机", [2] = "闹钟开机", [3] = "软件重启", [4] = "异常复位" }
+        local r = rtos.poweron_reason()
+        util_notify.add("#BOOT_" .. (reasonMap[r] or "其他原因") .. "(" .. r .. ")")
     end
 
     -- 定时查询流量

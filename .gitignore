@@ -1,5 +1,9 @@
 node_modules
 
+# 本地开发资料（不入库）
+开发文档-误删/
+server-go/server-go.zip
+
 # Go 服务端运行产物与本地状态（不入库）
 server-go/panel-server.exe
 server-go/panel.db
@@ -12,6 +16,6 @@ server-go/tools/
 server-go/air724-sign.pfx
 
 # 本地测试残留
-script/lib/out.json
+Air724ug/script/lib/out.json
 server-go/run.log
 server-go/run.err.log

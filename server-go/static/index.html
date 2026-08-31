@@ -1,10 +1,10 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Air724UG 管理面板</title>
-  <link rel="stylesheet" href="/css/style.css">
+  <link rel="stylesheet" href="/css/style.css?v=20260830d">
 </head>
 <body class="bg-slate-100 text-slate-900 min-h-screen">
 
@@ -101,7 +101,10 @@
               <h2 class="text-lg sm:text-xl font-semibold text-slate-900">设备列表</h2>
               <p class="text-sm text-slate-500 mt-0.5">通过 MQTT 接入的 Air724UG 设备</p>
             </div>
-            <button id="refresh-devices" class="btn btn-ghost">刷新</button>
+            <div class="flex items-center gap-3">
+              <span id="refresh-devices-time" class="text-xs text-slate-400" style="color:#94a3b8; min-width:112px; text-align:right; white-space:nowrap"></span>
+              <button id="refresh-devices" class="btn btn-ghost" style="min-width:112px; white-space:nowrap">刷新</button>
+            </div>
           </div>
           <div class="card overflow-hidden">
             <div class="overflow-x-auto">
@@ -405,10 +408,19 @@
         <section id="page-settings" class="page hidden">
           <div class="mb-4 sm:mb-6">
             <h2 class="text-lg sm:text-xl font-semibold text-slate-900">设置</h2>
-            <p class="text-sm text-slate-500 mt-0.5">修改登录账号信息</p>
+            <p class="text-sm text-slate-500 mt-0.5">登录账号、离线通知</p>
           </div>
-          <div class="max-w-md">
-            <div class="card p-6">
+          <div class="max-w-2xl">
+            <!-- Tab 菜单 -->
+            <div class="flex gap-1 border-b border-slate-200">
+              <button type="button" class="set-tab-btn px-4 py-2 text-sm transition-colors" data-set-tab="account"
+                      style="color:#2563eb;border-bottom:2px solid #2563eb;margin-bottom:-1px;font-weight:600">登录账号</button>
+              <button type="button" class="set-tab-btn px-4 py-2 text-sm transition-colors" data-set-tab="notify"
+                      style="color:#64748b;border-bottom:2px solid transparent;margin-bottom:-1px">离线通知</button>
+            </div>
+
+            <!-- 登录账号 -->
+            <div id="set-tab-account" class="card p-6 mt-6">
               <form id="settings-form" class="space-y-4">
                 <div>
                   <label class="label" for="set-current-username">当前用户名</label>
@@ -428,6 +440,29 @@
                 </div>
                 <p id="settings-msg" class="hidden text-sm"></p>
                 <button type="submit" class="btn btn-primary w-full">保存修改</button>
+              </form>
+            </div>
+
+            <!-- 离线通知 -->
+            <div id="set-tab-notify" class="card p-6 mt-6 hidden">
+              <form id="notify-settings-form" class="space-y-4">
+                <div class="flex items-center justify-between gap-4 rounded-lg bg-slate-50 px-4 py-3">
+                  <div>
+                    <label class="font-medium text-sm text-slate-700 block" for="set-notify-enabled">启用离线通知</label>
+                    <p class="text-xs text-slate-400 mt-0.5">设备离线（心跳超时或连接断开）时通过所选渠道推送通知</p>
+                  </div>
+                  <input id="set-notify-enabled" type="checkbox" class="w-5 h-5 shrink-0" style="accent-color:#2563eb">
+                </div>
+                <div id="notify-channels-wrap">
+                  <p class="label">通知渠道</p>
+                  <div id="notify-channels-list" class="flex flex-wrap gap-2 mt-2"></div>
+                  <div id="notify-channel-configs" class="mt-4 space-y-4"></div>
+                </div>
+                <p id="notify-settings-msg" class="hidden text-sm"></p>
+                <div class="flex flex-wrap items-center gap-3">
+                  <button type="submit" class="btn btn-primary">保存设置</button>
+                  <button type="button" id="notify-test-btn" class="btn">发送测试通知</button>
+                </div>
               </form>
             </div>
           </div>
@@ -513,7 +548,7 @@
     </div>
   </div>
 
-  <script src="/js/api.js"></script>
-  <script src="/js/app.js"></script>
+  <script src="/js/api.js?v=20260830d"></script>
+  <script src="/js/app.js?v=20260830d"></script>
 </body>
 </html>

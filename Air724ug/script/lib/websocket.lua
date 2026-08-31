@@ -76,6 +76,9 @@ function ws:connect(timeout)
     log.info("websocket url:", self.url)
     if not self.io:connect(self.host, self.port, timeout) then
         log.error("websocket:connect", "服务器连接失败!")
+        -- 连接失败也必须关闭 socket：connect 超时路径中 core 层 socket 未释放，
+        -- 不关闭会泄漏通道，多次重试后耗尽模块 socket（只能重启设备恢复）
+        self.io:close()
         return false
     end
     self.key = crypto.base64_encode(math.random(100000000000000, 999999999999999) .. 0, 16)
@@ -107,6 +110,10 @@ function ws:connect(timeout)
         end
     end
     log.error("websocket:connect", "与 websocket server 握手失败!")
+    -- 握手失败（如服务端重启期间 nginx 返回 502）必须关闭底层连接：
+    -- 否则每次重试泄漏一个 socket 通道，重部署期间 5 秒一次重试会迅速
+    -- 耗尽模块 socket，导致设备从此连不上、只能重启恢复
+    self.io:close()
     return false
 end
 -- 掩码加密
@@ -341,7 +348,7 @@ function ws:close(code, reason)
     self.readyState = "CLOSING"
     if self.terminated then
         log.error("ws:close server code:", code, reason)
-    elseif self.io.connected then
+    elseif self.io and self.io.connected then
         if code == nil and reason ~= nil then
             code = 1000
         end
@@ -355,7 +362,7 @@ function ws:close(code, reason)
         self.terminated = true
         self:sendFrame(true, 0x8, data)
     end
-    self.io:close()
+    if self.io then self.io:close() end
     self.readyState, self.connected = "CLOSED", false
     if self.callbacks.close then
         self.callbacks.close(code or 1001)
