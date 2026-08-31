@@ -1,4 +1,4 @@
-# Air724UG Web Panel
+# AirPanel
 
 基于合宙 Air724UG（LuatOS-Air）4G 模组的远程管理面板与短信/通话转发器。
 
@@ -65,7 +65,7 @@
 ## 目录结构
 
 ```
-air724ug_web_panel/
+AirPanel/
 ├── Air724ug/             # Air724UG 设备端 Lua 固件（LuatOS-Air）
 │   ├── core/             # 底层固件包（.pac）
 │   └── script/
