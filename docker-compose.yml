@@ -2,11 +2,11 @@ version: '3'
 
 services:
   panel-server:
-    container_name: air724ug-panel
+    container_name: airpanel
     build:
       context: ./server-go
       dockerfile: Dockerfile
-    image: air724ug-panel:latest
+    image: airpanel:latest
     ports:
       # 单端口：HTTP 管理面板 + MQTT over WebSocket(/websocket) 共用 9527
       - "9527:9527"

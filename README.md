@@ -1,6 +1,6 @@
 # AirPanel
 
-基于合宙 Air724UG（LuatOS-Air）4G 模组的远程管理面板与短信/通话转发器。
+基于合宙 Air 系列 4G 模组（Air724UG / Air780EP）的远程管理面板与短信/通话转发器。
 
 服务端由 **Go 单二进制**（内置 HTTP 面板 + MQTT Broker），前端使用 **Tailwind CSS** 构建，相比原 WebSocket 方案显著降低设备流量消耗。
 
@@ -133,17 +133,17 @@ go build -o panel-server.exe .
 
 **方式一：使用已发布镜像（推荐）**
 
-镜像已发布到 Docker Hub：`vipiu/air724ug_panel`（linux/amd64 + linux/arm64）
+镜像已发布到 Docker Hub：`vipiu/airpanel`（linux/amd64 + linux/arm64）
 
 ```bash
 # 拉取镜像
-docker pull vipiu/air724ug_panel:latest
+docker pull vipiu/airpanel:latest
 
 # 启动容器（单端口：面板 + MQTT over WebSocket 共用 9527）
-docker run -d --name air724ug-panel --restart unless-stopped \
+docker run -d --name airpanel --restart unless-stopped \
   -p 9527:9527 \
   -v panel-data:/app/data \
-  vipiu/air724ug_panel:latest
+  vipiu/airpanel:latest
 ```
 
 - `-p 9527` HTTP 面板 + MQTT over WebSocket（`/websocket`）共用，**只需这一个端口**

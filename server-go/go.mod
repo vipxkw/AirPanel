@@ -1,4 +1,4 @@
-module air724ug-panel/server
+module airpanel/server
 
 go 1.22
 

@@ -43,7 +43,7 @@ func main() {
 	}
 
 	log.Printf("======================================================")
-	log.Printf(" Air724UG Web Panel (Go)")
+	log.Printf(" AirPanel (Go)")
 	log.Printf(" HTTP 面板   : http://0.0.0.0:%d", cfg.Port)
 	log.Printf(" MQTT over WSS: /websocket（与面板共享端口 %d，nginx 反代 wss://域名/websocket 至该端口）", cfg.Port)
 	if cfg.MQTT.Port > 0 {
