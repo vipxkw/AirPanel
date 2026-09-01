@@ -160,10 +160,10 @@ docker-compose up -d
 
 > **从旧版本升级**（旧镜像把配置放在 `/app/config.json`）：升级前先导出旧配置，再放入卷：
 > ```bash
-> docker cp air724ug-panel:/app/config.json ./config.json
+> docker cp airpanel:/app/config.json ./config.json
 > docker compose up -d --build
-> docker cp ./config.json air724ug-panel:/app/data/config.json
-> docker restart air724ug-panel
+> docker cp ./config.json airpanel:/app/data/config.json
+> docker restart airpanel
 > ```
 > 之后 `config.json` 与数据库同目录持久化，升级容器不再需要重新配置。
 
